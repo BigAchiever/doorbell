@@ -1,0 +1,9 @@
+project:
+  name: rawtcp-gate
+  location: eu-central
+  corePackage: LIGHT
+services:
+  - hostname: gate
+    type: ubuntu/go@1
+    enableSubdomainAccess: true
+    minContainers: 1

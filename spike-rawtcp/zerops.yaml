@@ -1,0 +1,26 @@
+zerops:
+  - setup: gate
+    build:
+      base: go@1
+      buildCommands:
+        - go build -o gate .
+      deployFiles:
+        - gate
+    deploy:
+      readinessCheck:
+        httpGet:
+          port: 3000
+          path: /healthz
+    run:
+      base: go@1
+      ports:
+        - port: 3000
+          protocol: tcp
+          httpSupport: true
+        - port: 7000
+          protocol: tcp
+          httpSupport: false
+      envVariables:
+        PORT: "3000"
+        CONTROL_PORT: "7000"
+      start: ./gate

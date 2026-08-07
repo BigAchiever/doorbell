@@ -1,0 +1,70 @@
+# Doorbell — build / deploy / run
+#
+# Ports live HERE, not in the import YAML. The import schema has no `ports`
+# field at all (verified against the live schema) — it belongs to run.ports.
+#
+# THE LOAD-BEARING LINE IN THIS FILE is port 7000 with protocol TCP and
+# httpSupport false. That is the raw TCP control port every doorbell client
+# holds open. Vercel, Netlify, Cloudflare Workers and Lambda cannot express
+# this line at all; they terminate HTTP and nothing else.
+
+zerops:
+  - setup: gw
+    build:
+      base: go@1
+      buildCommands:
+        - go mod download
+        - go build -o doorbell-gw ./cmd/gateway
+      deployFiles:
+        - doorbell-gw
+      cache:
+        - /root/go/pkg/mod
+
+    deploy:
+      # false = zero-downtime. New containers boot and pass readiness before old
+      # ones stop. Matters more than usual here: a restart drops every live
+      # tunnel, so avoid churn during judging.
+      temporaryShutdown: false
+      readinessCheck:
+        httpGet:
+          port: 3000
+          path: /healthz
+
+    run:
+      base: go@1
+      ports:
+        # HTTP ingress. Gets the free https://*.zerops.app subdomain and the
+        # managed cert. This is what serves zeroconfig mode: /t/<id>/...
+        - port: 3000
+          protocol: tcp
+          httpSupport: true
+
+        # THE CONTROL PORT. Raw TCP, no HTTP. Each `doorbell 3000` client dials
+        # this once and keeps the socket open; requests are multiplexed back
+        # down it. Allowed range is 10-65435 (80 and 443 are reserved).
+        # NOTE: ports 25 and 465 are permanently blocked by Zerops — verified in
+        # their SMTP docs, "no exceptions". 7000 is well clear of that.
+        - port: 7000
+          protocol: tcp
+          httpSupport: false
+
+      envVariables:
+        PORT: "3000"
+        CONTROL_PORT: "7000"
+        # Cross-service references resolve over the private VXLAN network by
+        # bare hostname. Never use https:// between services in a project.
+        DATABASE_URL: postgresql://${db_user}:${db_password}@db:5432/${db_dbName}
+        REDIS_URL: redis://cache:6379
+
+      start: ./doorbell-gw
+
+  - setup: web
+    build:
+      base: nodejs@22
+      buildCommands:
+        - npm ci
+        - npm run build
+      deployFiles:
+        - dist/~
+    run:
+      base: static

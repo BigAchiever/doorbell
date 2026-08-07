@@ -1,0 +1,61 @@
+# Doorbell — deploy your own tunnel network
+#
+# THIS FILE IS THE PRODUCT.
+# Paste it into https://app.zerops.io -> "Import a project using YAML template"
+# and ~90 seconds later you own a private ngrok: gateway, database, cache,
+# dashboard, all wired together on a private VXLAN network.
+#
+# ngrok is a SaaS you rent. This is a network you own.
+#
+# Service type strings below are verified against the live Zerops import schema
+# (202-value enum, checked 7 Aug 2026) — not guessed.
+
+project:
+  name: doorbell
+  location: eu-central        # eu-central (prg1) | us-east-1 (ny1) | us-west-1 (sea1)
+  corePackage: LIGHT          # free; SERIOUS is $10/30d and upgradeable but NEVER downgradeable
+  tags:
+    - doorbell
+
+services:
+  # ── Postgres: tunnel registry, auth tokens, reserved subdomains, request index
+  # priority is descending: higher number = created FIRST. The gateway needs the
+  # database to exist before it boots, so db/cache are 100 and gw is 10.
+  - hostname: db
+    type: postgresql:single@17
+    priority: 100
+
+  # ── Valkey: the LIVE ROUTING TABLE plus pub/sub.
+  # This is what lets more than one gateway container exist. A tunnel is pinned
+  # to whichever container holds its TCP connection, so any other container that
+  # receives the HTTP request has to find out where to forward it. Without this,
+  # horizontal scaling silently breaks tunnels.
+  - hostname: cache
+    type: valkey:single@7.2
+    priority: 100
+
+  # ── The gateway: raw TCP control port + HTTP ingress.
+  # This is the service that could not exist on Vercel/Netlify/Workers — it must
+  # hold a long-lived TCP connection open, which is structurally impossible on a
+  # platform that terminates HTTP only and sleeps between requests.
+  # Zerops' lack of scale-to-zero is the ENABLING FEATURE here, not a cost.
+  - hostname: gw
+    type: ubuntu/go@1
+    priority: 10
+    minContainers: 1
+    maxContainers: 3
+    enableSubdomainAccess: true   # free https://*.zerops.app + managed SSL, instantly
+    # buildFromGit: https://github.com/YOUR_USER/doorbell
+    envSecrets:
+      # zeroconfig = path routing on the free Zerops subdomain, no DNS needed.
+      # wildcard   = abc.your-domain.com, needs DNS + ACME DNS-01.
+      DOORBELL_MODE: zeroconfig
+      DOORBELL_BASE_DOMAIN: ""
+      # Rotate this. It is the shared secret every doorbell CLI presents.
+      DOORBELL_ADMIN_TOKEN: <@generateRandomString(<32>)>
+
+  # ── Dashboard: live tunnel list + request/response inspector over WebSocket
+  - hostname: web
+    type: static
+    priority: 1
+    enableSubdomainAccess: true

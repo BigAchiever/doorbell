@@ -1,0 +1,7 @@
+doorbell-gw
+gate
+/tmp/
+*.log
+.spike-pid
+node_modules/
+dist/
