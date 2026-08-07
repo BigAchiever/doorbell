@@ -8,8 +8,9 @@
 // So: prove it in ten minutes, not at hour 30.
 //
 // This listens on two ports at once:
-//   :3000  HTTP  — should be reachable at the free https://*.zerops.app subdomain
-//   :7000  TCP   — the real test. Echoes back whatever you send.
+//
+//	:3000  HTTP  — should be reachable at the free https://*.zerops.app subdomain
+//	:7000  TCP   — the real test. Echoes back whatever you send.
 //
 // GREEN if, from your laptop:  nc <host> 7000   echoes your typing back.
 package main
