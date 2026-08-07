@@ -51,10 +51,11 @@ zerops:
       envVariables:
         PORT: "3000"
         CONTROL_PORT: "7000"
+        # Re-enable together with the db/cache services in zerops-import.yml.
         # Cross-service references resolve over the private VXLAN network by
         # bare hostname. Never use https:// between services in a project.
-        DATABASE_URL: postgresql://${db_user}:${db_password}@db:5432/${db_dbName}
-        REDIS_URL: redis://cache:6379
+        # DATABASE_URL: postgresql://${db_user}:${db_password}@db:5432/${db_dbName}
+        # REDIS_URL: redis://cache:6379
 
       start: ./doorbell-gw
 
