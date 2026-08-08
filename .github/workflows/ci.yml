@@ -8,6 +8,42 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Postgres and Valkey are the two things the mailbox is built on, so the
+    # tests that prove a webhook survives a disconnect need them present. They
+    # are the same major versions the Zerops project runs.
+    #
+    # Without these the persist and routing suites skip silently, and CI goes
+    # green while the guarantees the product is sold on are untested.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: doorbell
+          POSTGRES_PASSWORD: doorbell
+          POSTGRES_DB: doorbell
+        ports: ['5432:5432']
+        # Without a health check the job races the database's first-boot
+        # initialisation and fails on connection refused perhaps one run in five.
+        options: >-
+          --health-cmd "pg_isready -U doorbell"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      valkey:
+        image: valkey/valkey:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://doorbell:doorbell@localhost:5432/doorbell?sslmode=disable
+      REDIS_URL: redis://localhost:6379
+
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +67,21 @@ jobs:
       # caught exactly this way.
       - name: test
         run: go test -race -count=1 ./...
+
+      # The suites above skip when their service is missing, which would let a
+      # misconfigured runner report success while testing nothing. Fail loudly
+      # instead of quietly.
+      - name: fail if the integration suites skipped
+        run: |
+          out=$(go test -count=1 -v ./internal/persist/ ./internal/routing/ 2>&1)
+          if echo "$out" | grep -q '^--- SKIP'; then
+            echo "$out" | grep '^--- SKIP'
+            echo
+            echo "Postgres or Valkey was not reachable, so the mailbox and routing"
+            echo "guarantees were never exercised. Check the service containers."
+            exit 1
+          fi
+          echo "$out" | grep -c '^--- PASS' | xargs echo "integration tests passed:"
 
       - name: build every binary
         run: make build
