@@ -1,0 +1,449 @@
+/* Doorbell design system
+ *
+ * One stylesheet, served once and cached, shared by every page. The two pages
+ * that exist today use a subset; anything added later inherits the same tokens
+ * and components rather than growing another copy of them.
+ *
+ * Structure:
+ *   1. tokens      — the only place raw values live
+ *   2. reset       — the minimum, not a framework
+ *   3. primitives  — layout, typography
+ *   4. components  — button, card, badge, table, dialog, field, toast, states
+ *   5. utilities   — a deliberately small set
+ */
+
+/* ── 1. tokens ───────────────────────────────────────────────────────────── */
+
+:root {
+  color-scheme: dark;
+
+  /* Neutrals carry the interface; one accent carries meaning. A developer tool
+     that colours everything reads as a toy. */
+  --bg:            #0a0c0f;
+  --bg-raised:     #11151a;
+  --bg-sunken:     #07090b;
+  --bg-hover:      #161b22;
+  --line:          #1c232b;
+  --line-strong:   #2a333d;
+
+  --text:          #e7edf3;
+  --text-muted:    #8b959f;
+  /* Measured against --bg, not eyeballed. The previous value was 3.61:1, below
+     the 4.5:1 WCAG AA floor for small text — and it is used on table headers,
+     which are 11px. */
+  --text-subtle:   #737d88;
+
+  --accent:        #4ade80;
+  --accent-dim:    #14532d;
+  --info:          #60a5fa;
+  --warn:          #fbbf24;
+  --danger:        #f87171;
+
+  /* Status surfaces, pre-mixed so components never hand-roll rgba(). */
+  --accent-wash:   rgba(74, 222, 128, 0.12);
+  --info-wash:     rgba(96, 165, 250, 0.12);
+  --warn-wash:     rgba(251, 191, 36, 0.14);
+  --danger-wash:   rgba(248, 113, 113, 0.12);
+
+  --focus:         #7dd3fc;
+
+  /* A 4px scale. Everything is a multiple, so vertical rhythm holds without
+     anyone eyeballing it. */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px; --s-4: 16px;
+  --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px;
+  --s-12: 48px; --s-16: 64px;
+
+  --r-sm: 5px; --r-md: 8px; --r-lg: 12px; --r-full: 999px;
+
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-xs: 11px;  --fs-sm: 12px; --fs-md: 13px;
+  --fs-base: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 28px;
+
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
+
+  /* Named durations keep motion consistent; §prefers-reduced-motion zeroes
+     them all in one place rather than per-component. */
+  --t-fast: 90ms;
+  --t-base: 160ms;
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  --sidebar-w: 300px;
+  --header-h: 56px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #fbfcfd;        --bg-raised: #fff;      --bg-sunken: #f2f4f7;
+    --bg-hover: #f4f6f8;  --line: #e2e7ec;        --line-strong: #cbd3db;
+    --text: #0e1319;      --text-muted: #5a6672;  --text-subtle: #6a737e;  /* 4.68:1 on --bg */
+    --accent: #15803d;    --accent-dim: #bbf7d0;  --info: #1d4ed8;
+    --warn: #a16207;      --danger: #b91c1c;      --focus: #0369a1;
+    --accent-wash: rgba(21, 128, 61, 0.10);
+    --info-wash:   rgba(29, 78, 216, 0.10);
+    --warn-wash:   rgba(161, 98, 7, 0.12);
+    --danger-wash: rgba(185, 28, 28, 0.10);
+    --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.10);
+    --shadow-lg: 0 16px 48px rgba(15, 23, 42, 0.16);
+  }
+}
+
+/* One switch disables every animation in the system. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0ms; --t-base: 0ms; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── 2. reset ────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Any component that sets `display` outranks the [hidden] attribute, so a
+   hidden .btn would still render. This restores the attribute's meaning for
+   every component in the system rather than patching each one. */
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  /* Backstop against a stray wide child producing a horizontal scrollbar on the
+     whole page. Real overflow is fixed at the source; this stops one mistake
+     from making every page feel broken. */
+  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-base)/1.6 var(--font);
+  /* Removes the 300ms double-tap delay without disabling pinch zoom. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 600; line-height: 1.25; text-wrap: balance; }
+p  { margin: 0 0 var(--s-3); }
+ul { margin: 0; padding: 0; list-style: none; }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+
+code, kbd, pre, .mono { font-family: var(--mono); }
+
+/* One focus treatment for everything. :focus-visible, never :focus, so a mouse
+   click does not leave a ring behind. */
+:where(a, button, [role="button"], input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ── 3. primitives ───────────────────────────────────────────────────────── */
+
+.skip-link {
+  position: absolute;
+  left: var(--s-3);
+  top: -100px;
+  z-index: 100;
+  padding: var(--s-2) var(--s-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--text);
+  text-decoration: none;
+  transition: top var(--t-base) var(--ease);
+}
+.skip-link:focus { top: var(--s-3); }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  height: var(--header-h);
+  padding: 0 var(--s-5);
+  padding-left: max(var(--s-5), env(safe-area-inset-left));
+  padding-right: max(var(--s-5), env(safe-area-inset-right));
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--line);
+}
+
+/* .brand renders as <h1> on the dashboard and <p> on the landing page, so it
+   pins its own size instead of inheriting whichever element it lands on. */
+.brand {
+  display: flex; align-items: baseline; gap: var(--s-2);
+  margin: 0; font-size: var(--fs-lg); font-weight: 650;
+  letter-spacing: -0.015em; min-width: 0;
+}
+.brand strong { font-weight: inherit; }
+.brand span   { color: var(--text-subtle); font: var(--fs-sm)/1 var(--mono); }
+
+.nav { display: flex; gap: var(--s-1); margin-left: var(--s-4); }
+.nav a {
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  color: var(--text-muted);
+  font-size: var(--fs-md);
+  text-decoration: none;
+  transition: color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
+}
+.nav a:hover { color: var(--text); background: var(--bg-hover); }
+.nav a[aria-current="page"] { color: var(--text); background: var(--bg-hover); }
+
+.spacer { margin-left: auto; }
+
+/* The header is a single row of brand, nav and status. Below this width those
+   three no longer fit, and measurement showed it pushing the document to 445px
+   inside a 375px viewport. Rather than wrap into a ragged second row, the two
+   least load-bearing pieces step aside: the mode label, and the status text —
+   whose meaning the dot already carries, and which stays available to screen
+   readers through the visually hidden copy beside it. */
+@media (max-width: 560px) {
+  .app-header { gap: var(--s-2); padding-inline: var(--s-3); }
+  .nav { margin-left: 0; }
+  .brand .mode { display: none; }
+  .conn-label { display: none; }
+}
+
+.prose { max-width: 68ch; margin-inline: auto; padding: var(--s-12) var(--s-5) var(--s-16); }
+.prose h1 { font-size: var(--fs-2xl); letter-spacing: -0.025em; margin-bottom: var(--s-3); }
+.prose h2 {
+  margin: var(--s-12) 0 var(--s-4);
+  font: 600 var(--fs-xs)/1 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-subtle);
+  scroll-margin-top: calc(var(--header-h) + var(--s-4));
+}
+.lede { font-size: var(--fs-lg); color: var(--text-muted); margin-bottom: var(--s-8); }
+
+/* ── 4. components ───────────────────────────────────────────────────────── */
+
+/* Button ------------------------------------------------------------------ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  /* 32px tall at minimum — comfortably above the 24px CSS-pixel target floor,
+     and the icon-only variant below squares it off to 32×32. */
+  min-height: 32px;
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: 500 var(--fs-md)/1 var(--font);
+  /* .btn is used on <a> as well as <button>; without this the global anchor
+     underline bleeds through and the CTAs render underlined. */
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease),
+              color var(--t-fast) var(--ease),
+              opacity var(--t-fast) var(--ease);
+}
+.btn:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--text-subtle); }
+.btn:active:not(:disabled) { background: var(--bg-sunken); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #04140a; font-weight: 600; }
+.btn--primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); border-color: var(--accent); }
+.btn--ghost { background: transparent; border-color: transparent; color: var(--text-muted); }
+.btn--ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); border-color: transparent; }
+.btn--sm { min-height: 26px; padding: var(--s-1) var(--s-2); font-size: var(--fs-xs); }
+.btn--icon { width: 32px; padding: 0; }
+
+/* Card -------------------------------------------------------------------- */
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s-4);
+}
+.card--flush { padding: 0; overflow: hidden; }
+
+/* Badge ------------------------------------------------------------------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 3px var(--s-2);
+  border-radius: var(--r-full);
+  font: 600 var(--fs-xs)/1.4 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.badge--ok     { background: var(--accent-wash); color: var(--accent); }
+.badge--info   { background: var(--info-wash);   color: var(--info); }
+.badge--warn   { background: var(--warn-wash);   color: var(--warn); }
+.badge--danger { background: var(--danger-wash); color: var(--danger); }
+.badge--muted  { background: var(--bg-sunken);   color: var(--text-subtle); }
+
+/* Status dot -------------------------------------------------------------- */
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-subtle); flex: none; }
+.dot--live { background: var(--accent); animation: pulse 2.4s var(--ease) infinite; }
+.dot--down { background: var(--danger); }
+@keyframes pulse {
+  0%           { box-shadow: 0 0 0 0 var(--accent-wash); }
+  70%, 100%    { box-shadow: 0 0 0 6px transparent; }
+}
+
+/* Table ------------------------------------------------------------------- */
+.table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
+table.data { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
+table.data th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  text-align: left;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line);
+  font: 600 var(--fs-xs)/1 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+table.data td {
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  vertical-align: top;
+}
+/* Numbers in a column must line up; proportional digits make scanning latency
+   or status codes needlessly hard. */
+table.data .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+table.data tbody tr { cursor: pointer; transition: background-color var(--t-fast) var(--ease); }
+table.data tbody tr:hover { background: var(--bg-raised); }
+table.data tbody tr:focus-visible { background: var(--bg-raised); }
+table.data tbody tr.is-new { animation: flash 1.2s var(--ease) 1; }
+@keyframes flash { from { background: var(--accent-wash); } to { background: transparent; } }
+
+/* HTTP verbs and status classes, shared wherever either is rendered. */
+.verb { font-weight: 700; }
+.verb--GET { color: var(--accent); } .verb--POST { color: var(--warn); }
+.verb--PUT, .verb--PATCH { color: var(--info); } .verb--DELETE { color: var(--danger); }
+.status--2 { color: var(--accent); } .status--3 { color: var(--info); }
+.status--4 { color: var(--warn); }   .status--5 { color: var(--danger); }
+
+/* Dialog ------------------------------------------------------------------ */
+dialog.sheet {
+  width: min(760px, 94vw);
+  max-height: 86vh;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  overscroll-behavior: contain;
+}
+dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.66); }
+dialog.sheet .sheet__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border-bottom: 1px solid var(--line);
+}
+dialog.sheet .sheet__title { font: 600 var(--fs-md)/1.4 var(--mono); min-width: 0; overflow-wrap: anywhere; }
+dialog.sheet .sheet__body { padding: var(--s-5); overflow-y: auto; max-height: calc(86vh - 60px); }
+
+/* Definition list for header/metadata pairs -------------------------------- */
+.kv { margin: 0; font: var(--fs-sm)/1.7 var(--mono); }
+.kv > div { display: flex; gap: var(--s-3); padding: var(--s-1) 0; border-bottom: 1px solid var(--line); }
+.kv dt { flex: 0 0 min(40%, 190px); color: var(--text-subtle); overflow-wrap: anywhere; }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+/* Code block -------------------------------------------------------------- */
+pre.code {
+  margin: 0 0 var(--s-3);
+  padding: var(--s-4);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  font: var(--fs-sm)/1.75 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* States: empty, loading, error ------------------------------------------- */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-12) var(--s-5);
+  text-align: center;
+  color: var(--text-muted);
+}
+.state__title { color: var(--text); font-weight: 600; }
+.state__hint  { font-size: var(--fs-md); max-width: 44ch; }
+.state--inline { padding: var(--s-6) var(--s-3); }
+
+.skeleton {
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--bg-sunken) 25%, var(--bg-hover) 50%, var(--bg-sunken) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+/* A shimmering skeleton is motion; reduced-motion users get a flat block. */
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; background: var(--bg-sunken); } }
+
+/* Toast ------------------------------------------------------------------- */
+.toasts {
+  position: fixed;
+  z-index: 60;
+  right: max(var(--s-4), env(safe-area-inset-right));
+  bottom: max(var(--s-4), env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  width: min(360px, calc(100vw - var(--s-8)));
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--line-strong);
+  border-left-width: 3px;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-md);
+  pointer-events: auto;
+  animation: toast-in var(--t-base) var(--ease);
+}
+.toast--ok     { border-left-color: var(--accent); }
+.toast--error  { border-left-color: var(--danger); }
+.toast--info   { border-left-color: var(--info); }
+@keyframes toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ── 5. utilities ────────────────────────────────────────────────────────── */
+
+.muted    { color: var(--text-muted); }
+.subtle   { color: var(--text-subtle); }
+.tnum     { font-variant-numeric: tabular-nums; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.break    { overflow-wrap: anywhere; }
+.row      { display: flex; align-items: center; gap: var(--s-2); }
+.col      { display: flex; flex-direction: column; gap: var(--s-2); }
+.grow     { flex: 1; min-width: 0; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}

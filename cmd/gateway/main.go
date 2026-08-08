@@ -463,6 +463,7 @@ func (g *gateway) httpServer() *http.Server {
 	mux.HandleFunc("/api/mailbox", g.handleMailbox)
 	mux.HandleFunc("/api/replay/", g.handleReplay)
 	mux.HandleFunc("/t/", g.handleTunnelRequest)
+	mux.Handle("/assets/", dashboard.AssetHandler())
 	mux.HandleFunc("/dashboard", g.handleDashboard)
 	mux.HandleFunc("/", g.handleIndex)
 
@@ -727,24 +728,21 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 	var (
 		recMu     sync.Mutex
 		published sync.Once
-		reqDone   = r.Body == nil // no body means nothing to wait for
-		resDone   bool
 	)
-	// publishWhenBothEnded emits the record once both bodies have finished.
-	// Waiting for both is what lets the bodies stream instead of being read up
-	// front, which is the whole point of the change.
-	publishWhenBothEnded := func() {
-		if reqDone && resDone {
-			published.Do(func() { g.finishRecord(record) })
-		}
-	}
+	// The RESPONSE is what decides when the record is complete.
+	//
+	// An earlier version also waited on the request body, which silently lost
+	// every request that has none: Go's server never hands you a nil Body, so
+	// the capture was installed on an empty reader that nothing ever reads, its
+	// callback never fired, and no GET was ever recorded. Request-body capture
+	// is therefore best-effort — it fills the field if it completes in time,
+	// and a GET simply has nothing to fill it with.
+	publish := func() { published.Do(func() { g.finishRecord(record) }) }
 
 	if r.Body != nil {
 		r.Body = inspect.NewCapture(r.Body, func(body string, cut bool) {
 			recMu.Lock()
 			record.ReqBody, record.ReqCut = body, cut
-			reqDone = true
-			publishWhenBothEnded()
 			recMu.Unlock()
 		})
 	}
@@ -795,18 +793,14 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 			// streaming response until 32 KiB accumulated, which stalled SSE
 			// and long polls completely.
 			if resp.Body == nil {
-				recMu.Lock()
-				resDone = true
-				publishWhenBothEnded()
-				recMu.Unlock()
+				publish()
 				return nil
 			}
 			resp.Body = inspect.NewCapture(resp.Body, func(body string, cut bool) {
 				recMu.Lock()
 				record.ResBody, record.ResCut = body, cut
-				resDone = true
-				publishWhenBothEnded()
 				recMu.Unlock()
+				publish()
 			})
 			return nil
 		},
@@ -819,7 +813,7 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 			recMu.Unlock()
 			// The transport failed, so no response body will ever arrive;
 			// publish now rather than waiting for a callback that cannot fire.
-			published.Do(func() { g.finishRecord(record) })
+			publish()
 			http.Error(w, fmt.Sprintf("doorbell: tunnel %q did not answer — is your local server still running on port %d?", id, t.LocalPort), http.StatusBadGateway)
 		},
 	}
