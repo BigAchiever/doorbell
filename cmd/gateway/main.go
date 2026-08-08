@@ -29,8 +29,11 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/hashicorp/yamux"
@@ -38,6 +41,7 @@ import (
 	"github.com/danishalisiddiqui/doorbell/internal/dashboard"
 	"github.com/danishalisiddiqui/doorbell/internal/inspect"
 	"github.com/danishalisiddiqui/doorbell/internal/persist"
+	"github.com/danishalisiddiqui/doorbell/internal/ratelimit"
 	"github.com/danishalisiddiqui/doorbell/internal/registry"
 	"github.com/danishalisiddiqui/doorbell/internal/routing"
 	"github.com/danishalisiddiqui/doorbell/internal/tunnel"
@@ -94,6 +98,12 @@ type gateway struct {
 	store registry.Store
 	rec   *inspect.Recorder
 
+	// closing is set once shutdown begins so the control listener stops
+	// accepting new tunnels while existing ones drain.
+	closing atomic.Bool
+
+	limiter *ratelimit.Limiter
+
 	// Both are optional. A nil db means random names and no history; a nil
 	// route means single-container operation. Neither stops a tunnel working,
 	// which is the point — a tunnel is more useful than a database.
@@ -109,14 +119,101 @@ func main() {
 		cfg:   cfg,
 		store: registry.NewMemory(time.Now().UnixNano()),
 		rec:   inspect.NewRecorder(500),
+		// Generous on purpose: a page pulling fifty assets or a webhook burst
+		// must never trip this. It exists to stop a script hammering someone's
+		// laptop through the tunnel, not to shape normal traffic.
+		limiter: ratelimit.New(50, 200),
 	}
 
-	ctx := context.Background()
+	// SIGTERM is not hypothetical here: it is what Zerops sends on every
+	// deploy, restart and scale event. Without handling it the process dies
+	// instantly and every live tunnel is severed mid-request — an especially
+	// poor look for a product whose whole premise is a long-lived connection,
+	// and it quietly breaks the zero-downtime deploy that zerops.yaml asks for.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	g.connectPersistence(ctx)
 	g.connectRouting(ctx)
 
-	go g.serveControl()
-	g.serveHTTP()
+	controlLn, err := net.Listen("tcp", ":"+g.cfg.controlPort)
+	if err != nil {
+		log.Fatalf("control: cannot bind :%s — %v", g.cfg.controlPort, err)
+	}
+	go g.serveControl(controlLn)
+
+	g.limiter.StartSweeper(ctx.Done(), time.Minute, 10*time.Minute)
+
+	srv := g.httpServer()
+	go func() {
+		log.Printf("ingress: http listening on :%s (mode=%s)", g.cfg.httpPort, g.cfg.mode)
+		// ErrServerClosed is the expected result of a clean Shutdown, not a
+		// failure to report.
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("ingress: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	g.shutdown(srv, controlLn)
+}
+
+// shutdownGrace bounds how long a deploy waits for in-flight work. Zerops sends
+// SIGKILL after its own grace period, so overrunning buys nothing.
+const shutdownGrace = 15 * time.Second
+
+// shutdown drains in a deliberate order: stop taking new work, tell peers we
+// are going away, let in-flight HTTP finish, then cut the tunnels.
+func (g *gateway) shutdown(srv *http.Server, controlLn net.Listener) {
+	log.Printf("shutdown: draining (grace %s)", shutdownGrace)
+	g.closing.Store(true)
+
+	// Stop accepting new tunnels immediately.
+	if err := controlLn.Close(); err != nil {
+		log.Printf("shutdown: close control listener: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer cancel()
+
+	// Withdraw routes FIRST. Sibling containers must stop forwarding to us
+	// before we stop being able to serve, otherwise they proxy into a corpse.
+	if g.route != nil {
+		for _, t := range g.store.List() {
+			if err := g.route.Withdraw(ctx, t.ID); err != nil {
+				log.Printf("shutdown: withdraw %s: %v", t.ID, err)
+			}
+		}
+	}
+
+	// Let in-flight requests finish before the sockets they depend on close.
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("shutdown: http: %v", err)
+	}
+
+	// Now close the tunnels, so each CLI gets a clean session close and can
+	// report "the gateway closed the session" rather than hanging.
+	live := g.store.List()
+	for _, t := range live {
+		if session, ok := t.Session().(*yamux.Session); ok {
+			if err := session.Close(); err != nil {
+				log.Printf("shutdown: close session %s: %v", t.ID, err)
+			}
+		}
+	}
+	if len(live) > 0 {
+		log.Printf("shutdown: closed %d tunnel(s)", len(live))
+	}
+
+	if g.route != nil {
+		if err := g.route.Close(); err != nil {
+			log.Printf("shutdown: close valkey: %v", err)
+		}
+	}
+	if g.db != nil {
+		g.db.Close()
+	}
+	log.Printf("shutdown: done")
 }
 
 // connectPersistence attaches Postgres if configured. Failure is logged and
@@ -189,16 +286,15 @@ func (g *gateway) connectRouting(ctx context.Context) {
 
 // ─── control plane: the raw TCP port ────────────────────────────────────────
 
-func (g *gateway) serveControl() {
-	ln, err := net.Listen("tcp", ":"+g.cfg.controlPort)
-	if err != nil {
-		log.Fatalf("control: cannot bind :%s — %v", g.cfg.controlPort, err)
-	}
+func (g *gateway) serveControl(ln net.Listener) {
 	log.Printf("control: raw TCP listening on :%s", g.cfg.controlPort)
 
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			if g.closing.Load() {
+				return // the listener was closed by shutdown, not a fault
+			}
 			log.Printf("control: accept: %v", err)
 			continue
 		}
@@ -354,7 +450,7 @@ func (b *bufferedConn) Read(p []byte) (int, error) { return b.r.Read(p) }
 
 // ─── data plane: the HTTP ingress ───────────────────────────────────────────
 
-func (g *gateway) serveHTTP() {
+func (g *gateway) httpServer() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, "ok")
@@ -372,16 +468,13 @@ func (g *gateway) serveHTTP() {
 
 	srv := &http.Server{
 		Addr:    ":" + g.cfg.httpPort,
-		Handler: g.wildcardHost(mux),
+		Handler: g.rateLimit(g.wildcardHost(mux)),
 		// Deliberately no WriteTimeout: a tunnelled response is only as fast as
 		// the developer's laptop, and a timeout here would sever long polls and
 		// streaming responses that are otherwise working correctly.
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	log.Printf("ingress: http listening on :%s (mode=%s)", g.cfg.httpPort, g.cfg.mode)
-	if err := srv.ListenAndServe(); err != nil {
-		log.Fatalf("ingress: %v", err)
-	}
+	return srv
 }
 
 func (g *gateway) handleListTunnels(w http.ResponseWriter, _ *http.Request) {
@@ -519,6 +612,26 @@ func (g *gateway) handleStream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// rateLimit caps how fast any one client can drive the public ingress.
+//
+// /healthz is exempt: it is called by the platform's own health checker, and
+// throttling it would make Zerops believe the service is unhealthy and restart
+// a gateway that is merely popular.
+func (g *gateway) rateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !g.limiter.Allow(ratelimit.ClientIP(r), time.Now()) {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "doorbell: too many requests from your address", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // wildcardHost turns abc.your-domain.com into /t/abc/... before the mux sees it.

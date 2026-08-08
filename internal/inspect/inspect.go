@@ -173,7 +173,7 @@ func FlattenHeader(h http.Header) map[string]string {
 		if len(v) == 0 {
 			continue
 		}
-		if isSensitive(k) {
+		if IsSensitive(k) {
 			out[k] = "•••• redacted"
 			continue
 		}
@@ -182,7 +182,13 @@ func FlattenHeader(h http.Header) map[string]string {
 	return out
 }
 
-func isSensitive(key string) bool {
+// IsSensitive reports whether a header must never be displayed or replayed.
+//
+// Exported because replay needs exactly the same judgement: it used to decide
+// by sniffing the VALUE for the word "redacted", which both dropped legitimate
+// headers and would have started replaying the placeholder as a real
+// credential the moment that string changed.
+func IsSensitive(key string) bool {
 	switch http.CanonicalHeaderKey(key) {
 	case "Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie",
 		"X-Api-Key", "X-Auth-Token", "Stripe-Signature":

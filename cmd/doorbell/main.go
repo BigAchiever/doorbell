@@ -27,7 +27,11 @@ import (
 	"github.com/danishalisiddiqui/doorbell/internal/tunnel"
 )
 
-const clientVersion = "0.1.0"
+// clientVersion is a var, not a const: the linker's -X flag silently does
+// nothing to constants, so `make release VERSION=x` used to produce binaries
+// that all still reported 0.1.0 — making the version in the handshake useless
+// for exactly the support case it exists for.
+var clientVersion = "0.1.0"
 
 func main() {
 	log.SetFlags(0)

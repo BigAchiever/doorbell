@@ -122,10 +122,13 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 	if g.db == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	// Reading the queue is quick; each DELIVERY gets its own deadline below.
+	// A single 60s budget shared across the whole drain meant that with a full
+	// 200-request mailbox the later ones all failed on an expired context.
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelRead()
 
-	queued, err := g.db.Undelivered(ctx, id)
+	queued, err := g.db.Undelivered(readCtx, id)
 	if err != nil {
 		log.Printf("mailbox: read queue %s: %v", id, err)
 		return
@@ -135,19 +138,31 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 	}
 	log.Printf("mailbox: draining %d held request(s) into %s", len(queued), id)
 
+	// One client for the whole drain. Building an http.Transport per request
+	// allocated a fresh connection pool and its goroutines 200 times over.
+	client := sessionClient(session)
+	defer client.CloseIdleConnections()
+
 	for _, p := range queued {
 		if session.IsClosed() {
 			log.Printf("mailbox: %s went away mid-drain, %d still held", id, len(queued))
 			return
 		}
-		status, err := g.deliver(ctx, session, p, "buffered")
+		status, err := func() (int, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			return g.deliver(ctx, session, client, p, "buffered")
+		}()
 		if err != nil {
 			// Leave it undelivered so the next reconnect tries again. This is
 			// the whole promise of the feature — do not silently discard.
 			log.Printf("mailbox: deliver %d to %s failed, still held: %v", p.ID, id, err)
 			return
 		}
-		if err := g.db.MarkDelivered(ctx, p.ID, status); err != nil {
+		markCtx, cancelMark := context.WithTimeout(context.Background(), 10*time.Second)
+		err = g.db.MarkDelivered(markCtx, p.ID, status)
+		cancelMark()
+		if err != nil {
 			log.Printf("mailbox: mark delivered %d: %v", p.ID, err)
 		}
 	}
@@ -157,7 +172,7 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 //
 // Unlike a live proxy hop there is no downstream client waiting, so this uses a
 // plain http.Client over a yamux-dialling transport rather than ReverseProxy.
-func (g *gateway) deliver(ctx context.Context, session *yamux.Session, p persist.PendingRequest, source string) (int, error) {
+func (g *gateway) deliver(ctx context.Context, session *yamux.Session, client *http.Client, p persist.PendingRequest, source string) (int, error) {
 	target := "http://doorbell.local" + p.Path
 	if p.Query != "" {
 		target += "?" + p.Query
@@ -168,9 +183,17 @@ func (g *gateway) deliver(ctx context.Context, session *yamux.Session, p persist
 		return 0, fmt.Errorf("build request: %w", err)
 	}
 	for k, v := range p.Headers {
-		// Redacted placeholders must not be replayed as if they were real
-		// credentials — the app would reject them confusingly.
-		if strings.Contains(v, "redacted") {
+		// Skip by header NAME, using the same judgement that redacted it in the
+		// first place. Matching on the value instead both dropped legitimate
+		// headers that happened to contain the word and would have silently
+		// started replaying the placeholder text as a real credential if that
+		// string ever changed.
+		if inspect.IsSensitive(k) {
+			continue
+		}
+		// Hop-by-hop headers describe the connection that delivered the
+		// original request, not this one; replaying them confuses the client.
+		if isHopByHop(k) {
 			continue
 		}
 		req.Header.Set(k, v)
@@ -178,16 +201,6 @@ func (g *gateway) deliver(ctx context.Context, session *yamux.Session, p persist
 	req.Header.Set("X-Doorbell-Replay", source)
 	req.Header.Set("X-Doorbell-Original-Time", p.ReceivedAt.UTC().Format(time.RFC3339))
 	req.ContentLength = int64(len(p.Body))
-
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(context.Context, string, string) (net.Conn, error) {
-				return session.Open()
-			},
-			ResponseHeaderTimeout: 60 * time.Second,
-		},
-		Timeout: 90 * time.Second,
-	}
 
 	started := time.Now()
 	resp, err := client.Do(req)
@@ -218,6 +231,31 @@ func (g *gateway) deliver(ctx context.Context, session *yamux.Session, p persist
 		DurMs:    time.Since(started).Milliseconds(),
 	})
 	return resp.StatusCode, nil
+}
+
+// sessionClient builds an HTTP client whose connections are yamux streams on
+// one tunnel session. Reuse it across a drain rather than per request.
+func sessionClient(session *yamux.Session) *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(context.Context, string, string) (net.Conn, error) {
+				return session.Open()
+			},
+			ResponseHeaderTimeout: 60 * time.Second,
+		},
+		Timeout: 90 * time.Second,
+	}
+}
+
+// isHopByHop reports headers that describe a single connection and must not be
+// forwarded or replayed. RFC 9110 section 7.6.1.
+func isHopByHop(key string) bool {
+	switch http.CanonicalHeaderKey(key) {
+	case "Connection", "Keep-Alive", "Proxy-Authenticate", "Proxy-Connection",
+		"Te", "Trailer", "Transfer-Encoding", "Upgrade", "Content-Length", "Host":
+		return true
+	}
+	return false
 }
 
 // handleReplay re-sends a stored request into whichever container currently
@@ -256,7 +294,10 @@ func (g *gateway) handleReplay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	status, err := g.deliver(r.Context(), session, *p, "replay")
+	client := sessionClient(session)
+	defer client.CloseIdleConnections()
+
+	status, err := g.deliver(r.Context(), session, client, *p, "replay")
 	if err != nil {
 		log.Printf("replay %d: %v", id, err)
 		http.Error(w, `{"error":"replay failed"}`, http.StatusBadGateway)

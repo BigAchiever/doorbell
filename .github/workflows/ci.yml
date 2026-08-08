@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files need gofmt:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # -race matters more than usual here: the gateway mutates shared state
+      # from per-request goroutines, and a plain int64 counter was a real race
+      # caught exactly this way.
+      - name: test
+        run: go test -race -count=1 ./...
+
+      - name: build every binary
+        run: make build
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      # The CLI is what other people download, so a broken cross-build is a
+      # broken product even when CI on linux/amd64 is green.
+      - name: cross-compile the CLI
+        run: make release
