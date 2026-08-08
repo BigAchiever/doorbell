@@ -63,10 +63,23 @@ services:
       # wildcard   = abc.your-domain.com, needs DNS + a wildcard certificate.
       DOORBELL_MODE: zeroconfig
       DOORBELL_BASE_DOMAIN: ""
-      # Every doorbell CLI must present this. Generated per import, so no two
-      # deployments share a secret and nobody inherits one from the README.
+      # Gates the dashboard, the operator API and replay — everything that can
+      # read a captured body. Generated per import, so no two deployments share
+      # a secret and nobody inherits one from the README.
       DOORBELL_ADMIN_TOKEN: <@generateRandomString(<32>)>
+      # Gates the control port instead: who may open a tunnel at all. Left empty
+      # on purpose. Anyone can tunnel through this gateway, nobody but you can
+      # see what went through it. Set it to lock the gateway to your own team —
+      # but never to the same value as the token above, or every tunnel user
+      # gets your inspector.
+      DOORBELL_CLIENT_TOKEN: ""
       # Set this to your gateway's public origin after the first deploy, so the
       # CLI prints a URL people can actually open:
       #   https://gw-<subdomainHost>-3000.<region>.zerops.app
       DOORBELL_PUBLIC_BASE: ""
+      # Where clients dial the raw TCP control port. It is NOT the subdomain
+      # above: that name resolves to the shared HTTP balancer, which will refuse
+      # port 7000. Use the project's own public IP, shown in Zerops once the
+      # port routing from the header block exists. IPv6 goes in bare, no
+      # brackets — the CLI adds them.
+      DOORBELL_CONTROL_HOST: ""

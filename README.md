@@ -6,6 +6,7 @@
 </p>
 
 <p align="center">
+  <a href="#see-it-hold-a-request-right-now">Try it live</a> ·
   <a href="#30-second-demo">Demo</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#architecture">Architecture</a> ·
@@ -25,6 +26,37 @@
 <!-- A recording of the sequence below is the one thing still missing here.
      Record it, save it as docs/demo.gif, and add:
      <p align="center"><img src="docs/demo.gif" alt="A webhook held while the tunnel is offline, then delivered on reconnect" width="900"></p> -->
+
+---
+
+## See it hold a request, right now
+
+A gateway is running at
+**[gw-2ad0-3000.prg1.zerops.app](https://gw-2ad0-3000.prg1.zerops.app/)**. It has
+a tunnel named `shop` reserved, and nothing is connected to it — the same state
+as a laptop with the lid shut. Nothing to install:
+
+```bash
+curl -i -X POST https://gw-2ad0-3000.prg1.zerops.app/t/shop/hook -d '{"n":1}'
+```
+
+That answers **`202 Accepted`**, not `502`. Your request is in Postgres, and the
+`held right now` counter on the [overview page](https://gw-2ad0-3000.prg1.zerops.app/)
+goes up by one when you reload it.
+
+Then try a name nobody reserved:
+
+```bash
+curl -i -X POST https://gw-2ad0-3000.prg1.zerops.app/t/zzrandom99/hook -d '{"n":1}'
+```
+
+**`404`.** Only reserved names are held, so the mailbox is not something a
+stranger can fill by guessing URLs.
+
+That is the whole idea in two commands. The rest of this README is how it works
+and how to run your own.
+
+---
 
 ```
  $ doorbell 3000
@@ -359,14 +391,34 @@ the CLI into `dist/`.
 | `CONTROL_PORT` | `7000` | Raw TCP control port |
 | `DOORBELL_MODE` | `zeroconfig` | `zeroconfig` or `wildcard` |
 | `DOORBELL_BASE_DOMAIN` | — | Required by `wildcard` mode |
-| `DOORBELL_ADMIN_TOKEN` | — | Gates the CLI and the operator surface |
+| `DOORBELL_CLIENT_TOKEN` | — | Gates the control port. Unset means anyone may open a tunnel |
+| `DOORBELL_ADMIN_TOKEN` | — | Gates the dashboard, the operator API and replay |
 | `DOORBELL_PUBLIC_BASE` | — | External origin, for building tunnel URLs |
+| `DOORBELL_CONTROL_HOST` | — | Where clients dial the control port, when that is not the web origin |
 | `DATABASE_URL` | — | Postgres. Without it: random names, no mailbox |
 | `REDIS_URL` | — | Valkey. Without it: single-container mode |
+
+The two tokens are deliberately separate. Opening a tunnel is a small privilege;
+reading the inspector is not, because it exposes every captured request and
+response body on the gateway and can re-fire any of them. A gateway meant for
+other people to try leaves `DOORBELL_CLIENT_TOKEN` unset and keeps
+`DOORBELL_ADMIN_TOKEN` set: anyone may forward a port, only you can see what
+went through it. Setting both to the same value gives every tunnel user your
+inspector.
 
 ---
 
 ## Known limitations
+
+**The CLI needs IPv6 to reach the public gateway above.** Webhooks do not — the
+`curl` at the top of this README runs over plain IPv4, and so do the overview
+page and the dashboard, because those are HTTP and arrive through Zerops' shared
+L7 balancer. The control port cannot use that path: the balancer speaks HTTP
+only, so a raw TCP port has to be published on the project's own public IP.
+Zerops will not put raw ports on a *shared* IPv4 — the API refuses it with
+`publicIpTypeNotSupported` — which leaves IPv6, or a dedicated IPv4 as a paid
+add-on. This gateway uses IPv6. On your own deployment the same choice applies,
+and it is a per-project setting rather than anything in the code.
 
 **Custom-domain mode has never run end to end.** Host routing is implemented and
 covered by seven unit cases, including the ones that must *not* match. It cannot

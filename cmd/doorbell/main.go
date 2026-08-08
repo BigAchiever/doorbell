@@ -72,8 +72,16 @@ usage:
   doorbell [flags] <local-port>
 
 example:
-  export DOORBELL_GATEWAY=my-gateway.zerops.app
+  export DOORBELL_GATEWAY=203.0.113.10     # your gateway's control-port address
   doorbell 3000
+
+DOORBELL_GATEWAY is where the raw TCP control port answers, which is not
+always the host that serves the dashboard. On Zerops it never is: the
+*.zerops.app name resolves to a shared HTTP balancer that will refuse
+port 7000, while the control port is published on the project's own
+public IP. The gateway's overview page prints the right address.
+
+An IPv6 address goes in bare, without brackets — those get added here.
 
 flags:
 `)

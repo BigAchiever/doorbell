@@ -409,7 +409,22 @@ import { num, toast, copy, getJSON, initTheme, paintTape } from '/assets/app.js'
 
 const TAPE_MIN = 30;
 
-document.getElementById('host').textContent = location.host;
+/* Until /api/info answers, show the address of the page itself — right for a
+   local gateway, and replaced below wherever it is not. */
+document.getElementById('host').textContent = location.hostname;
+
+/* The control port is not always reachable at the web origin. On Zerops it
+   never is: this page is served through the shared HTTP balancer, while the raw
+   TCP port is published on the project's own IP. Printing location.host in the
+   install snippet would hand every visitor a command that cannot connect. */
+function showControlHost(info) {
+  if (!info?.controlHost) return;
+  /* Printed bare, brackets and all left off, even for IPv6. This value goes
+     into DOORBELL_GATEWAY, and the CLI joins it to the port itself with
+     net.JoinHostPort, which adds the brackets. Bracketing here produces
+     [[::1]]:7000 and the dial fails - verified against the live gateway. */
+  document.getElementById('host').textContent = info.controlHost;
+}
 
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-copy]');
@@ -427,6 +442,7 @@ async function load() {
       getJSON('/api/info'),
       getJSON(`/api/timeline?minutes=${TAPE_MIN}`),
     ]);
+    showControlHost(info);
     document.getElementById('s-mode').textContent = info.mode ?? '-';
     document.getElementById('s-tunnels').textContent = num(info.tunnels ?? 0);
     document.getElementById('s-held').textContent = num(info.held ?? 0);

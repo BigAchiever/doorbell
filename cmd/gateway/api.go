@@ -62,6 +62,10 @@ func (g *gateway) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"mode":        g.cfg.mode,
 		"tunnels":     len(g.store.List()),
 		"controlPort": g.cfg.controlPort,
+		// Empty means "dial the host you are already talking to", which is
+		// right for local development and wrong on any deployment whose raw
+		// port lives somewhere other than its web origin. See config.
+		"controlHost": g.cfg.controlHost,
 		"persistence": g.db != nil,
 		"routing":     g.route != nil,
 	}
@@ -89,7 +93,7 @@ func (g *gateway) handleListRequests(w http.ResponseWriter, _ *http.Request) {
 
 // handleStream pushes live records to the dashboard over Server-Sent Events.
 //
-// THE HEARTBEAT IS LOad-BEARING, not politeness. Zerops' L7 balancer defaults
+// THE HEARTBEAT IS LOAD-BEARING, not politeness. Zerops' L7 balancer defaults
 // send_timeout to 2 seconds — the maximum gap allowed between successive writes
 // to a client. An idle SSE stream writes nothing, so the balancer would close
 // the connection two seconds after the last request and the dashboard would

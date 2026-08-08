@@ -15,10 +15,28 @@ import (
 	"github.com/BigAchiever/Doorbell/internal/dashboard"
 )
 
+// tokenOK gates the control port: may this client open a tunnel at all?
+//
+// It deliberately checks clientToken and not adminToken. Those were the same
+// value once, which meant handing someone a tunnel also handed them the
+// inspector — every captured body on the gateway, and replay. A public gateway
+// leaves clientToken empty and keeps adminToken set: anyone may forward a port,
+// nobody but the operator may read what went through it.
 func (g *gateway) tokenOK(presented string) bool {
-	if g.cfg.adminToken == "" {
+	if g.cfg.clientToken == "" {
 		return true
 	}
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(g.cfg.clientToken)) == 1
+}
+
+// adminTokenOK gates the inspector. Kept separate from tokenOK on purpose: an
+// empty clientToken means "anyone may tunnel", and if the operator surface
+// shared that check, a public gateway would hand its dashboard to the first
+// visitor who guessed ?token=anything.
+//
+// Callers must have already established that adminToken is non-empty; an
+// unset admin token is handled once, at the top of requireOperator.
+func (g *gateway) adminTokenOK(presented string) bool {
 	return subtle.ConstantTimeCompare([]byte(presented), []byte(g.cfg.adminToken)) == 1
 }
 
@@ -46,7 +64,7 @@ func (g *gateway) requireOperator(next http.Handler) http.Handler {
 		// A ?token= query sets the cookie once, so the operator can open the
 		// dashboard from a link instead of hand-crafting a header.
 		if q := r.URL.Query().Get("token"); q != "" {
-			if !g.tokenOK(q) {
+			if !g.adminTokenOK(q) {
 				g.denyOperator(w, r)
 				return
 			}
@@ -69,7 +87,7 @@ func (g *gateway) requireOperator(next http.Handler) http.Handler {
 			return
 		}
 
-		if presented, ok := operatorToken(r); ok && g.tokenOK(presented) {
+		if presented, ok := operatorToken(r); ok && g.adminTokenOK(presented) {
 			next.ServeHTTP(w, r)
 			return
 		}

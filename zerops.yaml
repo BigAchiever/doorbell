@@ -64,13 +64,7 @@ zerops:
 
       start: ./doorbell-gw
 
-  - setup: web
-    build:
-      base: nodejs@22
-      buildCommands:
-        - npm ci
-        - npm run build
-      deployFiles:
-        - dist/~
-    run:
-      base: static
+# There is deliberately no second service here. The dashboard and the landing
+# page are go:embed'd into the gateway binary, so they ship with it and cannot
+# drift out of sync with the API they read. One service, one deploy, no static
+# host to keep alive alongside it.
