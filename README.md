@@ -92,12 +92,30 @@ For **webhook testing — the single most common reason anyone opens a tunnel �
 
 ---
 
+## What Postgres and Valkey are actually for
+
+Neither is decorative, and both degrade rather than block.
+
+**Valkey fixes a correctness bug, not a performance one.** A tunnel is pinned to whichever gateway container holds its TCP socket — that is physics, the socket lives in one process. But the HTTP ingress load-balances across every container, so a request for `quiet-frog` can land on a container that does not hold it. Each container advertises *"I own `<id>`, reach me at `<addr>`"* into Valkey under a heartbeat-refreshed TTL; a container that cannot serve a tunnel forwards to the one that can, carrying a one-hop header so a stale route can never bounce a request in a loop.
+
+**Postgres makes reserved names durable.** "Your URL changes on every restart" is ngrok's most-cited free-tier complaint, and you cannot fix it with in-memory state. Ownership is a hashed token, enforced by an atomic `INSERT … ON CONFLICT … WHERE owner_hash = EXCLUDED.owner_hash`, so two containers racing for the same name cannot both win.
+
+With neither configured the gateway logs `DEGRADED` and runs single-container with random names. A tunnel is more useful than a database.
+
 ## Deploy your own
 
 1. Copy [`zerops-import.yml`](zerops-import.yml)
 2. [app.zerops.io](https://app.zerops.io) → **Import a project using YAML template** → paste
 3. Wait ~90 seconds
-4. `doorbell 3000`
+4. Set `DOORBELL_ADMIN_TOKEN` on the `gw` service, then:
+
+```bash
+export DOORBELL_GATEWAY=<your-gateway-host>
+export DOORBELL_TOKEN=<your-admin-token>
+doorbell 3000
+```
+
+The gateway refuses any client whose token does not match, and logs a loud warning if you leave the token empty.
 
 ---
 
@@ -111,6 +129,16 @@ Measured live against a real Zerops account on 7 Aug 2026, before a line of prod
 - Ports **25 and 465 are permanently blocked** ("no exceptions") — 7000 is clear
 - `ListProjectServiceStacks` returns `list`, not `items`
 - The API is `v0-beta` and returns transient errors mid-poll — the client retries
+- Valkey closes connections idle for 300s and TCP keepalive does **not** reset that timer, so the pub/sub subscriber sends an application-level `PING` every 60s
+- The L7 balancer's `send_timeout` defaults to 2s, so the SSE stream emits a comment frame every second — measured 7 heartbeats in 8s through the real balancer
+
+## Known limitation: multi-container is proven, but not on Zerops yet
+
+Peer forwarding is verified end to end — two gateways sharing one Valkey, where the non-owning gateway logged `peer: forwarding peertest to 127.0.0.1:4001` and returned the real response body from the laptop.
+
+It is **not** yet demonstrated across two Zerops containers. `PUT /service-stack/{id}/autoscaling` accepts `customAutoscaling.horizontalAutoscalingNullable.minContainerCount = 2`, returns HTTP 200, runs an async process to `FINISHED` — and the setting does not persist: `customAutoscaling.horizontalAutoscaling` stays `null` and the effective config remains `min 1 / max 2`. `zcli` exposes no scale command. Horizontal scaling on this account appears to be load-driven only, with the floor pinned at one container.
+
+So: the code path is proven, the platform has not been made to exercise it. Stated plainly rather than implied to work.
 
 ## AI disclosure
 
