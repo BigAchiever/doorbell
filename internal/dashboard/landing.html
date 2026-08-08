@@ -66,7 +66,7 @@ try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.d
         <div class="ledger__cell"><p class="ledger__label">Mode</p><p class="ledger__value v-accent" id="s-mode">…</p></div>
         <div class="ledger__cell"><p class="ledger__label">Live tunnels</p><p class="ledger__value" id="s-tunnels">…</p></div>
         <div class="ledger__cell"><p class="ledger__label">Held right now</p><p class="ledger__value v-held" id="s-held">…</p></div>
-        <div class="ledger__cell"><p class="ledger__label">Dropped, all time</p><p class="ledger__value v-ok">0</p></div>
+        <div class="ledger__cell"><p class="ledger__label">Mailbox</p><p class="ledger__value" id="s-mailbox">…</p></div>
       </div>
     </section>
     <p class="hero__caption">Shaded bands are minutes a tunnel was disconnected. Amber ticks
@@ -210,7 +210,7 @@ try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.d
       </article>
       <article class="card2">
         <h3><span class="card2__n" aria-hidden="true">05</span>Replay on demand</h3>
-        <p>Re-send any stored request byte for byte, whenever you like - press <kbd>r</kbd>.</p>
+        <p>Re-send any stored request, body byte for byte, whenever you like - press <kbd>r</kbd>. Signing headers are redacted before storage, so they do not come back with it.</p>
       </article>
       <article class="card2">
         <h3><span class="card2__n" aria-hidden="true">06</span>A URL that does not move</h3>
@@ -430,11 +430,16 @@ async function load() {
     document.getElementById('s-mode').textContent = info.mode ?? '-';
     document.getElementById('s-tunnels').textContent = num(info.tunnels ?? 0);
     document.getElementById('s-held').textContent = num(info.held ?? 0);
+    /* Whether Postgres is attached is the only honest thing to say here: it is
+       exactly what decides whether a request survives the tunnel being down. */
+    const mailbox = document.getElementById('s-mailbox');
+    mailbox.textContent = info.persistence ? 'holding' : 'off';
+    mailbox.className = 'ledger__value ' + (info.persistence ? 'v-ok' : 'v-fail');
     dot.className = 'dot dot--live';
     document.getElementById('liveLabel').textContent = 'Live';
     paintTape(document.getElementById('tapeTrack'), spans, [], TAPE_MIN);
   } catch {
-    for (const id of ['s-mode', 's-tunnels', 's-held']) {
+    for (const id of ['s-mode', 's-tunnels', 's-held', 's-mailbox']) {
       const el = document.getElementById(id);
       el.textContent = 'unavailable';
       el.className = 'ledger__value v-fail';

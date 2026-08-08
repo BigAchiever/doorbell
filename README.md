@@ -14,10 +14,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/hero.png" alt="The Doorbell overview page, showing the live gateway panel with its timeline and counters" width="900">
+  <img src="docs/hero.png" alt="The Doorbell overview page: a timeline showing the ci tunnel offline with four requests held, alongside counters reading 1 live tunnel and 4 held right now" width="900">
 </p>
 
-<p align="center"><sub>The overview page draws the same timeline the dashboard does, from the same data - so the gateway is visibly running before you read a word.</sub></p>
+<p align="center"><sub>
+  Live counters from the gateway itself. The <code>ci</code> tunnel is down, so four requests are
+  sitting in the mailbox rather than being lost.
+</sub></p>
 
 <!-- A recording of the sequence below is the one thing still missing here.
      Record it, save it as docs/demo.gif, and add:
@@ -63,7 +66,7 @@ database in the path.
 | Laptop offline → the request is lost | Laptop offline → the request is stored |
 | Sender gets `502` and starts retrying | Sender gets `202 Accepted` and stops |
 | Reconnect starts from now | Reconnect drains the queue, oldest first |
-| Nothing to replay — it never arrived | Any stored request, re-sent byte for byte |
+| Nothing to replay — it never arrived | Any stored request, re-sent on demand |
 | Someone else's servers see your payloads | Your project, your database, your network |
 
 ngrok's request inspector and replay are genuinely good, and free. They just
@@ -122,18 +125,44 @@ on a timeline, with the offline stretch shaded and the held requests inside it.
 
 | | |
 |---|---|
-| **Nothing is dropped** | Written to Postgres *before* the sender is answered |
+| **Nothing is dropped** | Written to Postgres *before* the sender is answered, to a cap of 200 per tunnel |
 | **Answered immediately** | `202`, so the sender's retry policy never fires |
 | **Delivered in order** | The queue drains oldest first |
 | **Delivered once** | An atomic lease stops two reconnects double-delivering |
-| **Replayable** | Any stored request, re-sent byte for byte, on demand |
+| **Replayable** | Any stored request, re-sent on demand, minus the headers below |
 | **Stable URL** | Reserved names survive restarts and redeploys |
-| **Secrets not stored** | Signing and auth headers are redacted before the database |
+| **Secrets not stored** | Signing and auth headers are redacted before the database — and so are absent on delivery |
 | **Visible** | Live request and response bodies, and exactly when a tunnel was offline |
 
 Answering `202` means *"I have taken responsibility for this"*, not *"your app
 processed it"*. For a development tunnel that is the behaviour you want. For a
 production gateway it would be wrong, and this is not one.
+
+Three limits are worth knowing before you rely on any of the above.
+
+**The mailbox holds 200 requests per tunnel.** Past that, the oldest undelivered
+rows are deleted to make room. Without a cap the table is a denial-of-service
+surface — anyone who learns a reserved name could point a load generator at it
+while you are offline and fill the disk. Oldest-first is the right trade for
+webhook development, where the newest events are the ones you were waiting for,
+but it does mean "nothing is dropped" holds up to that cap and not past it.
+
+**Signing headers do not survive the mailbox.** Anything whose name contains
+`Signature`, `Token`, `Secret`, `Api-Key` or `Hmac`, plus `Authorization` and
+`Cookie`, is redacted before the row is written — so it is already gone when the
+request is delivered or replayed, and your local app cannot verify the
+signature on a held webhook. For Stripe-style signatures this costs little,
+since they are computed over a timestamp that a held request has already fallen
+outside of. For GitHub's `X-Hub-Signature-256`, which is an HMAC over the body
+alone, it means a verification that would otherwise have passed will fail.
+Requests arriving this way carry `X-Doorbell-Replay`, so the usual workaround is
+to skip verification when that header is present; narrowing `IsSensitive` in
+`internal/inspect` is the other option, at the cost of putting live credentials
+in Postgres.
+
+**Bodies over 1 MiB are refused, not truncated.** A body stored short would be
+delivered short with a matching `Content-Length`, and the receiving app would
+see malformed input nobody sent.
 
 ---
 
