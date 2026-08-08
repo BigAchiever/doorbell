@@ -360,6 +360,7 @@ func (g *gateway) serveHTTP() {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, "ok")
 	})
+	mux.HandleFunc("/api/info", g.handleInfo)
 	mux.HandleFunc("/api/tunnels", g.handleListTunnels)
 	mux.HandleFunc("/api/requests", g.handleListRequests)
 	mux.HandleFunc("/api/stream", g.handleStream)
@@ -367,11 +368,12 @@ func (g *gateway) serveHTTP() {
 	mux.HandleFunc("/api/mailbox", g.handleMailbox)
 	mux.HandleFunc("/api/replay/", g.handleReplay)
 	mux.HandleFunc("/t/", g.handleTunnelRequest)
+	mux.HandleFunc("/dashboard", g.handleDashboard)
 	mux.HandleFunc("/", g.handleIndex)
 
 	srv := &http.Server{
 		Addr:    ":" + g.cfg.httpPort,
-		Handler: mux,
+		Handler: g.wildcardHost(mux),
 		// Deliberately no WriteTimeout: a tunnelled response is only as fast as
 		// the developer's laptop, and a timeout here would sever long polls and
 		// streaming responses that are otherwise working correctly.
@@ -402,17 +404,52 @@ func (g *gateway) handleListTunnels(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// handleIndex serves the landing page. Someone arriving at the gateway URL for
+// the first time needs to be told what this is before being shown a table of
+// HTTP requests, so the inspector lives at /dashboard instead of "/".
 func (g *gateway) handleIndex(w http.ResponseWriter, r *http.Request) {
-	// "/" is the only path that reaches here that should render the dashboard;
-	// anything else is a genuine 404 rather than a silent fallback.
+	// "/" is the only path that should render the landing page; anything else
+	// reaching this catch-all is a genuine 404, not a silent fallback.
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
+	writeHTML(w, dashboard.Landing)
+}
+
+func (g *gateway) handleDashboard(w http.ResponseWriter, _ *http.Request) {
+	writeHTML(w, dashboard.HTML)
+}
+
+func writeHTML(w http.ResponseWriter, page []byte) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	if _, err := w.Write(dashboard.HTML); err != nil {
+	if _, err := w.Write(page); err != nil {
 		log.Printf("dashboard: write: %v", err)
+	}
+}
+
+// handleInfo backs the live counters on the landing page.
+func (g *gateway) handleInfo(w http.ResponseWriter, r *http.Request) {
+	info := map[string]any{
+		"mode":        g.cfg.mode,
+		"tunnels":     len(g.store.List()),
+		"controlPort": g.cfg.controlPort,
+		"persistence": g.db != nil,
+		"routing":     g.route != nil,
+	}
+	if g.db != nil {
+		if counts, err := g.db.PendingCount(r.Context()); err == nil {
+			held := 0
+			for _, n := range counts {
+				held += n
+			}
+			info["held"] = held
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(info); err != nil {
+		log.Printf("api: encode info: %v", err)
 	}
 }
 
@@ -483,6 +520,46 @@ func (g *gateway) handleStream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// wildcardHost turns abc.your-domain.com into /t/abc/... before the mux sees it.
+//
+// Doing the translation here rather than in a separate handler means wildcard
+// mode inherits everything path mode already has — peer forwarding, the
+// mailbox, the inspector — instead of growing a parallel copy of it that would
+// drift.
+//
+// Only the routing half of wildcard mode lives in Doorbell. Issuing the
+// wildcard certificate is the deployer's job (ACME DNS-01 against a domain they
+// control); this code assumes TLS has already been terminated in front of it.
+func (g *gateway) wildcardHost(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if g.cfg.mode != modeWildcard || g.cfg.baseDomain == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		suffix := "." + g.cfg.baseDomain
+		if !strings.HasSuffix(host, suffix) {
+			// The apex domain itself still serves the landing page and API.
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		id := strings.TrimSuffix(host, suffix)
+		// Only a single label is a tunnel. "a.b.example.com" is not "a-b".
+		if id == "" || strings.Contains(id, ".") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		r.URL.Path = "/t/" + id + r.URL.Path
+		next.ServeHTTP(w, r)
+	})
 }
 
 // handleTunnelRequest serves zero-config mode: /t/<id>/rest/of/path

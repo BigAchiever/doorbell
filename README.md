@@ -127,12 +127,19 @@ Neither is decorative, and both degrade rather than block.
 
 With neither configured the gateway logs `DEGRADED` and runs single-container with random names. A tunnel is more useful than a database.
 
-## Deploy your own
+## Install the CLI
 
-1. Copy [`zerops-import.yml`](zerops-import.yml)
-2. [app.zerops.io](https://app.zerops.io) → **Import a project using YAML template** → paste
-3. Wait ~90 seconds
-4. Set `DOORBELL_ADMIN_TOKEN` on the `gw` service, then:
+```bash
+go install github.com/danishalisiddiqui/doorbell/cmd/doorbell@latest
+```
+
+No Go? Prebuilt binaries for macOS, Linux and Windows:
+
+```bash
+make release      # writes dist/doorbell-<os>-<arch>
+```
+
+Then point it at a gateway:
 
 ```bash
 export DOORBELL_GATEWAY=<your-gateway-host>
@@ -141,6 +148,34 @@ doorbell 3000
 ```
 
 The gateway refuses any client whose token does not match, and logs a loud warning if you leave the token empty.
+
+## Deploy your own
+
+1. Copy [`zerops-import.yml`](zerops-import.yml)
+2. [app.zerops.io](https://app.zerops.io) → **Import a project using YAML template** → paste
+3. Wait ~90 seconds
+4. **One manual step the import file cannot do:** open the raw TCP control port.
+   `gw` → Public access → port routing, public `7000` → internal `7000`, protocol `tcp`.
+   Pick IPv6 (free) or a dedicated IPv4 ($3/30d) — a *shared* IPv4 cannot carry raw
+   ports, the API rejects it with `publicIpTypeNotSupported`.
+
+## Running it locally
+
+```bash
+valkey-server --port 6399 &
+createdb doorbell
+
+DATABASE_URL=postgresql://localhost/doorbell \
+REDIS_URL=redis://127.0.0.1:6399 \
+DOORBELL_PUBLIC_BASE=http://localhost:3000 \
+  go run ./cmd/gateway
+```
+
+Both backing services are optional — without them the gateway logs `DEGRADED` and runs single-container with random names.
+
+```bash
+make test    # 21 tests across 4 packages
+```
 
 ---
 

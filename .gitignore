@@ -5,3 +5,4 @@ gate
 .spike-pid
 node_modules/
 dist/
+dist/

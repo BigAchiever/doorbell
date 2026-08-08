@@ -1,0 +1,122 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Doorbell — a tunnel that doesn't lose your webhooks</title>
+<style>
+  :root{
+    --bg:#0b0d10; --panel:#12161b; --line:#1e252d; --ink:#e6edf3;
+    --dim:#7d8792; --accent:#4ade80; --warn:#fbbf24;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:light){
+    :root{--bg:#f7f8fa;--panel:#fff;--line:#e3e7ec;--ink:#11161c;--dim:#5b6470}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.65 ui-sans-serif,system-ui,-apple-system,sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:56px 22px 80px}
+  h1{font-size:30px;line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-size:17px;margin:0 0 30px}
+  h2{font-size:13px;font-family:var(--mono);text-transform:uppercase;
+     letter-spacing:.1em;color:var(--dim);margin:44px 0 12px;font-weight:600}
+  p{margin:0 0 14px}
+  a{color:var(--accent)}
+  code{font-family:var(--mono);font-size:.9em;background:var(--panel);
+       border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+      padding:15px 17px;overflow-x:auto;font:13px/1.75 var(--mono);margin:0 0 14px}
+  pre code{background:none;border:0;padding:0}
+  .dim{color:var(--dim)}
+  .status{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 8px}
+  .pill{border:1px solid var(--line);background:var(--panel);border-radius:999px;
+        padding:6px 14px;font:12px/1 var(--mono);color:var(--dim)}
+  .pill b{color:var(--accent);font-weight:600}
+  .cta{display:inline-block;border:1px solid var(--line);background:var(--panel);
+       border-radius:8px;padding:9px 16px;font:13px/1 var(--mono);
+       text-decoration:none;color:var(--ink);margin-right:9px}
+  .cta:hover{border-color:var(--dim)}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin:0 0 14px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{font:11px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  td:first-child{font-family:var(--mono);font-size:13px}
+  .yes{color:var(--accent)} .no{color:var(--dim)}
+  footer{margin-top:52px;padding-top:20px;border-top:1px solid var(--line);
+         color:var(--dim);font-size:13px}
+</style>
+
+<div class="wrap">
+  <h1>A tunnel that doesn't lose your webhooks.</h1>
+  <p class="sub">Expose localhost to the internet — on infrastructure you own,
+     deployed from one YAML file.</p>
+
+  <div class="status">
+    <span class="pill">mode <b id="mode">—</b></span>
+    <span class="pill">live tunnels <b id="tunnels">—</b></span>
+    <span class="pill">held requests <b id="held">—</b></span>
+  </div>
+  <p><a class="cta" href="/dashboard">Open the live dashboard →</a></p>
+
+  <h2>The problem every tunnel has</h2>
+  <p>You close your laptop. Stripe fires a webhook. It gets a 502, and you go
+     re-send it by hand from their dashboard. ngrok, frp, bore, chisel and
+     Cloudflare Tunnel all drop it.</p>
+  <p><strong>Doorbell holds it.</strong></p>
+<pre><code>doorbell 3000        →  https://…/t/shop/
+^C                   →  laptop closed
+3 webhooks arrive    →  <span class="yes">202 Accepted, held</span>   (not 502)
+doorbell 3000        →  all 3 delivered, in order</code></pre>
+  <p class="dim">Any held request can also be replayed on demand — a feature
+     ngrok charges for.</p>
+
+  <h2>Try it against this gateway</h2>
+<pre><code># with Go
+go install github.com/danishalisiddiqui/doorbell/cmd/doorbell@latest
+
+export DOORBELL_GATEWAY=<span id="host">…</span>
+export DOORBELL_TOKEN=&lt;ask the operator&gt;
+doorbell 3000</code></pre>
+  <p class="dim">No Go? Prebuilt binaries for macOS, Linux and Windows are in
+     <code>dist/</code> in the repository.</p>
+
+  <h2>Why this needs Zerops</h2>
+  <p>A tunnel is one long-lived TCP socket held open for hours. A serverless
+     function sleeps between requests; when it sleeps the socket dies and the
+     tunnel dies with it. This is not "harder on Vercel" — it is not
+     expressible there.</p>
+  <table>
+    <tr><th>Requirement</th><th>Zerops</th><th>Vercel / Netlify / Workers</th></tr>
+    <tr><td>Raw TCP port</td><td class="yes">yes, 10–65435</td><td class="no">no — HTTP only</td></tr>
+    <tr><td>Always-on process</td><td class="yes">yes, no scale-to-zero</td><td class="no">no</td></tr>
+    <tr><td>Private network to DB + cache</td><td class="yes">yes, VXLAN</td><td class="no">no</td></tr>
+  </table>
+  <p class="dim">Honest caveat: this would also run on Fly.io or a $5 VPS. What
+     neither gives you is the whole network — gateway, Postgres, Valkey, private
+     networking, managed TLS — standing up from a single pasted file in about 90
+     seconds.</p>
+
+  <h2>Deploy your own</h2>
+  <p>Copy <code>zerops-import.yml</code> from the repository into
+     app.zerops.io → <em>Import a project using YAML template</em>. That file is
+     the product: ngrok is a SaaS you rent, this is a network you own.</p>
+
+  <footer>
+    Built for The Zerops Challenge, 8–9 August 2026 · MIT licensed ·
+    <a href="/dashboard">dashboard</a> · <a href="/api/tunnels">API</a>
+  </footer>
+</div>
+
+<script>
+// Fill in the live numbers so the page is a status board, not a brochure.
+(async () => {
+  const set = (id, v) => { document.getElementById(id).textContent = v; };
+  set('host', location.hostname);
+  try {
+    const i = await (await fetch('/api/info')).json();
+    set('mode', i.mode ?? '—');
+    set('tunnels', i.tunnels ?? 0);
+    set('held', i.held ?? 0);
+  } catch {
+    set('mode', '—'); set('tunnels', '?'); set('held', '?');
+  }
+})();
+</script>
