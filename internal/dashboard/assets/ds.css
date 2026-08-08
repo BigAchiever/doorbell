@@ -38,6 +38,12 @@
 
   --accent:        oklch(0.72 0.14 292);
   --accent-dim:    oklch(0.32 0.08 292);
+  /* What sits ON the accent, and what the accent becomes on hover. Both have
+     to be per-theme: the accent is light in dark mode and dark in light mode,
+     so no single text colour works, and brightness() moves the wrong way in
+     one of them. */
+  --accent-fg:     #04140a;
+  --accent-hover:  oklch(0.78 0.14 292);
 
   /* State. --held/--delivered/--failed are the names the interface reasons in;
      --info/--warn/--danger stay as aliases so existing components keep working. */
@@ -122,8 +128,13 @@
     --text-muted:    oklch(0.480 0.012 80);
     --text-subtle:   oklch(0.530 0.012 80);
 
-    --accent:        oklch(0.50 0.17 292);
+    /* 0.50 sat exactly on the AA boundary against white in both directions —
+       as accent text on a white card, and as white text on an accent button.
+       0.45 buys the margin back without changing the hue. */
+    --accent:        oklch(0.45 0.18 292);
     --accent-dim:    oklch(0.905 0.045 292);
+    --accent-fg:     oklch(1 0 0);
+    --accent-hover:  oklch(0.39 0.18 292);
 
     --held:          oklch(0.525 0.115 72);
     --delivered:     oklch(0.485 0.125 152);
@@ -152,8 +163,13 @@
     --text-muted:    oklch(0.480 0.012 80);
     --text-subtle:   oklch(0.530 0.012 80);
 
-    --accent:        oklch(0.50 0.17 292);
+    /* 0.50 sat exactly on the AA boundary against white in both directions —
+       as accent text on a white card, and as white text on an accent button.
+       0.45 buys the margin back without changing the hue. */
+    --accent:        oklch(0.45 0.18 292);
     --accent-dim:    oklch(0.905 0.045 292);
+    --accent-fg:     oklch(1 0 0);
+    --accent-hover:  oklch(0.39 0.18 292);
 
     --held:          oklch(0.525 0.115 72);
     --delivered:     oklch(0.485 0.125 152);
@@ -339,8 +355,8 @@ code, kbd, pre, .mono { font-family: var(--mono); }
 .btn:active:not(:disabled) { background: var(--bg-sunken); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.btn--primary { background: var(--accent); border-color: var(--accent); color: #04140a; font-weight: 600; }
-.btn--primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); border-color: var(--accent); }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.btn--primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--text-muted); }
 .btn--ghost:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); border-color: transparent; }
 .btn--sm { min-height: 26px; padding: var(--s-1) var(--s-2); font-size: var(--fs-xs); }
