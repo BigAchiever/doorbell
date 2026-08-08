@@ -19,10 +19,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -33,6 +35,8 @@ import (
 
 	"github.com/hashicorp/yamux"
 
+	"github.com/danishalisiddiqui/doorbell/internal/dashboard"
+	"github.com/danishalisiddiqui/doorbell/internal/inspect"
 	"github.com/danishalisiddiqui/doorbell/internal/registry"
 	"github.com/danishalisiddiqui/doorbell/internal/tunnel"
 )
@@ -82,13 +86,18 @@ func envOr(key, fallback string) string {
 type gateway struct {
 	cfg   config
 	store registry.Store
+	rec   *inspect.Recorder
 }
 
 func main() {
 	cfg := loadConfig()
 	// Seeded from the clock only here, at process start, so tunnel names differ
 	// between runs while staying injectable for tests.
-	g := &gateway{cfg: cfg, store: registry.NewMemory(time.Now().UnixNano())}
+	g := &gateway{
+		cfg:   cfg,
+		store: registry.NewMemory(time.Now().UnixNano()),
+		rec:   inspect.NewRecorder(500),
+	}
 
 	go g.serveControl()
 	g.serveHTTP()
@@ -227,6 +236,8 @@ func (g *gateway) serveHTTP() {
 		fmt.Fprint(w, "ok")
 	})
 	mux.HandleFunc("/api/tunnels", g.handleListTunnels)
+	mux.HandleFunc("/api/requests", g.handleListRequests)
+	mux.HandleFunc("/api/stream", g.handleStream)
 	mux.HandleFunc("/t/", g.handleTunnelRequest)
 	mux.HandleFunc("/", g.handleIndex)
 
@@ -263,20 +274,87 @@ func (g *gateway) handleListTunnels(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func (g *gateway) handleIndex(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintf(w, `Doorbell gateway
+func (g *gateway) handleIndex(w http.ResponseWriter, r *http.Request) {
+	// "/" is the only path that reaches here that should render the dashboard;
+	// anything else is a genuine 404 rather than a silent fallback.
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if _, err := w.Write(dashboard.HTML); err != nil {
+		log.Printf("dashboard: write: %v", err)
+	}
+}
 
-mode          %s
-control port  %s (raw TCP)
-live tunnels  %d
+func (g *gateway) handleListRequests(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(g.rec.Recent(200)); err != nil {
+		log.Printf("api: encode requests: %v", err)
+	}
+}
 
-Point a client at the control port:
+// handleStream pushes live records to the dashboard over Server-Sent Events.
+//
+// THE HEARTBEAT IS LOad-BEARING, not politeness. Zerops' L7 balancer defaults
+// send_timeout to 2 seconds — the maximum gap allowed between successive writes
+// to a client. An idle SSE stream writes nothing, so the balancer would close
+// the connection two seconds after the last request and the dashboard would
+// flap between "live" and "reconnecting" forever. A comment frame every second
+// keeps the stream under that ceiling without emitting anything the client has
+// to parse.
+func (g *gateway) handleStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
 
-    doorbell 3000
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// Belt and braces: tells any intermediate nginx not to buffer this response.
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
 
-ngrok is a SaaS you rent. This is a network you own.
-`, g.cfg.mode, g.cfg.controlPort, len(g.store.List()))
+	// Send backlog first so a dashboard opened mid-session is not blank.
+	hello, err := json.Marshal(map[string]any{
+		"mode":   g.cfg.mode,
+		"recent": g.rec.Recent(100),
+	})
+	if err != nil {
+		log.Printf("stream: marshal hello: %v", err)
+		return
+	}
+	fmt.Fprintf(w, "event: hello\ndata: %s\n\n", hello)
+	flusher.Flush()
+
+	events, release := g.rec.Subscribe()
+	defer release()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case rec, ok := <-events:
+			if !ok {
+				return
+			}
+			payload, err := json.Marshal(rec)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "event: request\ndata: %s\n\n", payload)
+			flusher.Flush()
+		case <-ticker.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 // handleTunnelRequest serves zero-config mode: /t/<id>/rest/of/path
@@ -304,6 +382,39 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prefix := "/t/" + id
+	started := time.Now()
+
+	// Capture the request body before it is consumed, then hand the proxy an
+	// identical reader. Reading it here without restoring it would send an
+	// empty body upstream — which is exactly the case that matters, since
+	// webhooks are POSTs.
+	var reqBody string
+	var reqCut bool
+	if r.Body != nil {
+		limited := io.LimitReader(r.Body, inspect.MaxBodyCapture+1)
+		captured, err := io.ReadAll(limited)
+		if err == nil {
+			reqBody, reqCut = inspect.Truncate(captured)
+			// Anything past the capture limit still has to reach the app, so
+			// splice the captured prefix back in front of the untouched rest.
+			r.Body = struct {
+				io.Reader
+				io.Closer
+			}{io.MultiReader(bytes.NewReader(captured), r.Body), r.Body}
+		}
+	}
+
+	record := &inspect.Record{
+		TunnelID: id,
+		At:       started.UTC(),
+		Method:   r.Method,
+		Path:     rest,
+		Query:    r.URL.RawQuery,
+		ReqHead:  inspect.FlattenHeader(r.Header),
+		ReqBody:  reqBody,
+		ReqCut:   reqCut,
+	}
+
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL.Scheme = "http"
@@ -336,10 +447,34 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 			if loc := resp.Header.Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, prefix) {
 				resp.Header.Set("Location", prefix+loc)
 			}
+
+			record.Status = resp.StatusCode
+			record.ResHead = inspect.FlattenHeader(resp.Header)
+			record.DurMs = time.Since(started).Milliseconds()
+			record.BodySize = resp.ContentLength
+
+			// Same tee as the request side. A failure to read here must not
+			// fail the response — the developer's traffic matters more than
+			// the inspector's completeness.
+			if resp.Body != nil {
+				captured, err := io.ReadAll(io.LimitReader(resp.Body, inspect.MaxBodyCapture+1))
+				if err == nil {
+					record.ResBody, record.ResCut = inspect.Truncate(captured)
+					resp.Body = struct {
+						io.Reader
+						io.Closer
+					}{io.MultiReader(bytes.NewReader(captured), resp.Body), resp.Body}
+				}
+			}
+			g.rec.Add(record)
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			log.Printf("proxy %s: %v", id, err)
+			record.Status = http.StatusBadGateway
+			record.DurMs = time.Since(started).Milliseconds()
+			record.Error = err.Error()
+			g.rec.Add(record)
 			http.Error(w, fmt.Sprintf("doorbell: tunnel %q did not answer — is your local server still running on port %d?", id, t.LocalPort), http.StatusBadGateway)
 		},
 	}
