@@ -3,9 +3,10 @@ package main
 // The mailbox is what makes Doorbell more than a tunnel.
 //
 // Every tunnel ever built — ngrok, frp, bore, chisel, Cloudflare Tunnel —
-// drops requests on the floor when your laptop is not there. You close the lid,
-// Stripe fires a webhook, it gets a 502, and you go and re-send it by hand from
-// their dashboard.
+// drops requests on the floor when your laptop is not there. You close the lid;
+// the payment provider, the git host, the CI job reporting back all get a 502,
+// and you go and re-send each one by hand from whatever console it came from —
+// assuming that sender kept it at all.
 //
 // Doorbell catches it instead. If a request arrives for a RESERVED name with no
 // live session, it is stored and the caller gets 202 Accepted. When the tunnel
@@ -239,19 +240,21 @@ func (g *gateway) deliver(ctx context.Context, session *yamux.Session, client *h
 	// Surface it in the inspector exactly like live traffic, tagged so it is
 	// obvious this was not someone hitting the URL just now.
 	g.finishRecord(&inspect.Record{
-		TunnelID: p.TunnelID,
-		At:       started.UTC(),
-		Method:   p.Method,
-		Path:     p.Path + "  ⟲ " + source,
-		Query:    p.Query,
-		ReqHead:  p.Headers,
-		ReqBody:  reqBody,
-		ReqCut:   reqCut,
-		Status:   resp.StatusCode,
-		ResHead:  inspect.FlattenHeader(resp.Header),
-		ResBody:  resText,
-		ResCut:   resCut,
-		DurMs:    time.Since(started).Milliseconds(),
+		TunnelID:  p.TunnelID,
+		At:        started.UTC(),
+		Method:    p.Method,
+		Path:      p.Path,
+		Source:    source,
+		PendingID: p.ID,
+		Query:     p.Query,
+		ReqHead:   p.Headers,
+		ReqBody:   reqBody,
+		ReqCut:    reqCut,
+		Status:    resp.StatusCode,
+		ResHead:   inspect.FlattenHeader(resp.Header),
+		ResBody:   resText,
+		ResCut:    resCut,
+		DurMs:     time.Since(started).Milliseconds(),
 	})
 	return resp.StatusCode, nil
 }
@@ -333,12 +336,86 @@ func (g *gateway) handleReplay(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMailbox lists stored requests. GET /api/mailbox?tunnel=<id>
+// handleTimeline is the public half of the mailbox: when each tunnel was
+// offline and how much was held, and nothing else.
+//
+// The overview page draws the same tape as the dashboard, so a visitor sees the
+// held requests before reading a word — which means this cannot sit behind the
+// operator token. What it returns is deliberately thin: a tunnel name, two
+// timestamps, a count. No paths, no headers, no bodies, no sizes. The tunnel
+// names are already public, since they are the URL a caller posts to.
+func (g *gateway) handleTimeline(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if g.db == nil {
+		// No database means no mailbox, which is a flat tape rather than an error.
+		_, _ = w.Write([]byte("[]"))
+		return
+	}
+
+	mins := 30
+	if v := r.URL.Query().Get("minutes"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			http.Error(w, `{"error":"minutes must be a positive number"}`, http.StatusBadRequest)
+			return
+		}
+		mins = min(n, 360)
+	}
+
+	list, err := g.db.Since(r.Context(), time.Now().Add(-time.Duration(mins)*time.Minute), 0)
+	if err != nil {
+		http.Error(w, `{"error":"timeline query failed"}`, http.StatusInternalServerError)
+		return
+	}
+
+	type span struct {
+		TunnelID    string     `json:"tunnelId"`
+		ReceivedAt  time.Time  `json:"receivedAt"`
+		DeliveredAt *time.Time `json:"deliveredAt,omitempty"`
+	}
+	out := make([]span, 0, len(list))
+	for _, p := range list {
+		out = append(out, span{TunnelID: p.TunnelID, ReceivedAt: p.ReceivedAt, DeliveredAt: p.DeliveredAt})
+	}
+	if err := json.NewEncoder(w).Encode(out); err != nil {
+		log.Printf("api: encode public timeline: %v", err)
+	}
+}
+
 func (g *gateway) handleMailbox(w http.ResponseWriter, r *http.Request) {
 	if g.db == nil {
 		http.Error(w, `{"error":"mailbox needs a database"}`, http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+
+	// ?since=<minutes> feeds the dashboard timeline: every stored request in the
+	// window, across all tunnels, so the client can reconstruct which stretches a
+	// tunnel was offline. Bounded at 6 hours because the tape only ever draws a
+	// window of that order, and an unbounded value here is a free table scan for
+	// anyone holding the operator token.
+	if v := r.URL.Query().Get("since"); v != "" {
+		mins, err := strconv.Atoi(v)
+		if err != nil || mins <= 0 {
+			http.Error(w, `{"error":"since must be a positive number of minutes"}`, http.StatusBadRequest)
+			return
+		}
+		if mins > 360 {
+			mins = 360
+		}
+		list, err := g.db.Since(r.Context(), time.Now().Add(-time.Duration(mins)*time.Minute), 0)
+		if err != nil {
+			http.Error(w, `{"error":"timeline query failed"}`, http.StatusInternalServerError)
+			return
+		}
+		if list == nil {
+			list = []persist.PendingRequest{}
+		}
+		if err := json.NewEncoder(w).Encode(list); err != nil {
+			log.Printf("api: encode timeline: %v", err)
+		}
+		return
+	}
 
 	if id := r.URL.Query().Get("tunnel"); id != "" {
 		list, err := g.db.Mailbox(r.Context(), id, 50)

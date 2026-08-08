@@ -1,189 +1,450 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a0c0f" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#fbfcfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
 <meta name="description" content="A tunnel that doesn't lose your webhooks. Expose localhost on infrastructure you own, deployed from one YAML file.">
-<title>Doorbell — A Tunnel That Doesn't Lose Your Webhooks</title>
+<title>Doorbell - A Tunnel That Doesn't Lose Your Webhooks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/ds.css">
-<style>
-  .stats { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: 0 0 var(--s-5); padding: 0; }
-  .stat {
-    display: flex; align-items: baseline; gap: var(--s-2);
-    padding: var(--s-2) var(--s-4);
-    border: 1px solid var(--line); border-radius: var(--r-full);
-    background: var(--bg-raised);
-    font: var(--fs-sm)/1 var(--mono); color: var(--text-subtle);
-  }
-  .stat b { color: var(--accent); font-weight: 650; font-variant-numeric: tabular-nums; }
-  .stat--error b { color: var(--danger); }
-
-  .cta-row { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-bottom: var(--s-6); }
-
-  .snippet { position: relative; }
-  .snippet .btn { position: absolute; top: var(--s-2); right: var(--s-2); opacity: 0; }
-  /* The copy button is revealed on hover for pointers, but is always present
-     for keyboard users — hiding it behind :hover alone would strand them. */
-  .snippet:hover .btn, .snippet:focus-within .btn { opacity: 1; }
-  @media (hover: none) { .snippet .btn { opacity: 1; } }
-
-  table.compare { width: 100%; border-collapse: collapse; font-size: var(--fs-md); margin-bottom: var(--s-3); }
-  table.compare th, table.compare td {
-    text-align: left; padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line);
-  }
-  table.compare thead th {
-    font: 600 var(--fs-xs)/1 var(--mono); text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--text-subtle);
-  }
-  table.compare tbody th { font-weight: 500; }
-  .yes { color: var(--accent); } .no { color: var(--text-subtle); }
-
-  /* list-style is cleared because ::before supplies the marker; leaving the
-     native one on renders both, e.g. "1. (1)". counter-reset must stay, or the
-     counter never starts. */
-  .steps { list-style: none; counter-reset: step; margin: 0 0 var(--s-4); padding: 0; }
-  .steps li {
-    counter-increment: step;
-    position: relative;
-    padding-left: var(--s-8);
-    margin-bottom: var(--s-3);
-  }
-  .steps li::before {
-    content: counter(step);
-    position: absolute; left: 0; top: 1px;
-    display: grid; place-items: center;
-    width: 22px; height: 22px;
-    border: 1px solid var(--line-strong); border-radius: var(--r-full);
-    font: 600 var(--fs-xs)/1 var(--mono); color: var(--text-muted);
-  }
-</style>
+<script>/* Applied before first paint: rendering the wrong theme for a frame and
+   then correcting it is worse than having no control at all. */
+try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 
 <a class="skip-link" href="#main">Skip to Content</a>
 
-<header class="app-header">
-  <p class="brand"><strong>Doorbell</strong></p>
-  <nav class="nav" aria-label="Primary">
-    <a href="/" aria-current="page">Overview</a>
-    <a href="/dashboard">Dashboard</a>
+<!-- One route, one scroll. There is no separate "overview" entry, because this
+     page is the overview. -->
+<header class="sitenav">
+  <a class="mark" href="/">
+    <span class="mark__ring" aria-hidden="true"></span>
+    <strong>Doorbell</strong>
+  </a>
+  <div class="spacer"></div>
+  <nav class="sitenav__links" aria-label="Sections">
+    <a href="#how">How it works</a>
+    <a href="#guarantees">Guarantees</a>
+    <a href="#install">Install</a>
+    <a href="#zerops">Why Zerops</a>
   </nav>
+  <button type="button" class="btn btn--icon btn--ghost" id="themeToggle"><span data-icon aria-hidden="true">☾</span></button>
+  <a class="btn btn--primary" href="/dashboard">Dashboard</a>
 </header>
 
-<main class="prose" id="main">
-  <h1>A tunnel that doesn't lose your webhooks.</h1>
-  <p class="lede">Expose localhost to the internet — on infrastructure you own,
-     deployed from one YAML file.</p>
+<main id="main">
+  <section class="hero">
+    <div class="hero__glow" aria-hidden="true"></div>
 
-  <ul class="stats" id="stats" aria-live="polite" aria-label="Gateway status">
-    <li class="stat"><span>Mode</span> <b id="s-mode">…</b></li>
-    <li class="stat"><span>Live Tunnels</span> <b id="s-tunnels">…</b></li>
-    <li class="stat"><span>Held Requests</span> <b id="s-held">…</b></li>
-  </ul>
+    <p class="tag"><span class="tag__dot" aria-hidden="true"></span>Self-hosted · running on Zerops</p>
+    <h1 class="hero__title">A tunnel that doesn't lose your webhooks.</h1>
+    <p class="hero__lede">A whole tunnel network - gateway, database, queue and TLS - deployed
+       into <strong>your own</strong> Zerops account from one YAML file. Nobody else's servers sit
+       in the path of your traffic. Which is exactly why it can hold what arrives while your
+       laptop is shut, and deliver it in order when you come back.</p>
 
-  <p class="cta-row">
-    <a class="btn btn--primary" href="/dashboard">Open the Live Dashboard</a>
-    <a class="btn" href="#install">Install the CLI</a>
-  </p>
+    <p class="hero__cta">
+      <a class="btn btn--primary btn--lg" href="/dashboard">Open the live dashboard</a>
+      <a class="btn btn--lg" href="#install">Install the CLI</a>
+      <span class="hero__note mono">MIT · one binary · no account</span>
+    </p>
 
-  <h2 id="problem">The Problem Every Tunnel Has</h2>
-  <p>You close your laptop. Stripe fires a webhook. It gets a 502, and you go
-     re-send it by hand from their dashboard. ngrok, frp, bore, chisel and
-     Cloudflare Tunnel all drop it.</p>
-  <p><strong>Doorbell holds it.</strong></p>
-  <pre class="code" translate="no">doorbell 3000        →  https://…/t/shop/
-^C                   →  laptop closed
-3 webhooks arrive    →  <span class="yes">202 Accepted, held</span>   (not 502)
-doorbell 3000        →  all 3 delivered, in order</pre>
-  <p class="muted">Any held request can also be replayed on demand — a feature
-     ngrok charges for.</p>
+    <!-- The same tape the dashboard draws, from the same code. The claim above
+         is abstract; this is the gateway actually running, right now. -->
+    <section class="panel" aria-labelledby="panelTitle">
+      <div class="panel__head">
+        <h2 id="panelTitle">This gateway · last 30 minutes</h2>
+        <p class="live"><span class="dot" id="dot" aria-hidden="true"></span>
+          <span id="liveLabel">Live</span></p>
+      </div>
+      <div class="tape__track" id="tapeTrack"></div>
+      <div class="tape__axis" aria-hidden="true">
+        <span>−30m</span><span>−20m</span><span>−10m</span><span>now</span>
+      </div>
+      <div class="ledger" id="stats" aria-live="polite" aria-label="Gateway status">
+        <div class="ledger__cell"><p class="ledger__label">Mode</p><p class="ledger__value v-accent" id="s-mode">…</p></div>
+        <div class="ledger__cell"><p class="ledger__label">Live tunnels</p><p class="ledger__value" id="s-tunnels">…</p></div>
+        <div class="ledger__cell"><p class="ledger__label">Held right now</p><p class="ledger__value v-held" id="s-held">…</p></div>
+        <div class="ledger__cell"><p class="ledger__label">Dropped, all time</p><p class="ledger__value v-ok">0</p></div>
+      </div>
+    </section>
+    <p class="hero__caption">Shaded bands are minutes a tunnel was disconnected. Amber ticks
+       are requests held during them.</p>
+  </section>
 
-  <h2 id="install">Try It Against This Gateway</h2>
-  <div class="snippet">
-    <pre class="code" id="cmd-go" translate="no">go install github.com/danishalisiddiqui/doorbell/cmd/doorbell@latest
+  <section class="sec" id="how">
+    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">01</span>What a tunnel is actually for</h2>
+    <p class="sec__lede">Something on the internet needs to POST to code on your laptop, and your
+       laptop has no public address. So you open a tunnel - and then you close the lid.</p>
 
-export DOORBELL_GATEWAY=<span id="host">…</span>
-export DOORBELL_TOKEN=&lt;ask the operator&gt;
-doorbell 3000</pre>
-    <button type="button" class="btn btn--sm" data-copy="cmd-go"
-            aria-label="Copy the install commands">Copy</button>
-  </div>
-  <p class="muted">No Go? Prebuilt binaries for macOS, Linux and Windows are built
-     by <code translate="no">make&nbsp;release</code>.</p>
+    <p class="senders" aria-label="Examples of senders">
+      <span>Stripe</span><span>GitHub</span><span>GitLab CI</span><span>Slack</span>
+      <span>Twilio</span><span>Shopify</span><span>Auth0</span><span>anything with a webhook</span>
+    </p>
 
-  <h2 id="why">Why This Needs Zerops</h2>
-  <p>A tunnel is one long-lived TCP socket held open for hours. A serverless
-     function sleeps between requests; when it sleeps the socket dies and the
-     tunnel dies with it. This is not “harder on Vercel” — it is not
-     expressible there.</p>
-  <div class="table-wrap">
-    <table class="compare">
-      <caption class="sr-only">What a tunnel requires, and which platforms provide it</caption>
-      <thead>
-        <tr><th scope="col">Requirement</th><th scope="col">Zerops</th>
-            <th scope="col">Vercel / Netlify / Workers</th></tr>
-      </thead>
-      <tbody>
-        <tr><th scope="row">Raw TCP port</th>
-            <td class="yes">Yes, 10–65435</td><td class="no">No — HTTP only</td></tr>
-        <tr><th scope="row">Always-on process</th>
-            <td class="yes">Yes, no scale-to-zero</td><td class="no">No</td></tr>
-        <tr><th scope="row">Private network to DB &amp; cache</th>
-            <td class="yes">Yes, VXLAN</td><td class="no">No</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <p class="muted">Honest caveat: this would also run on Fly.io or a $5 VPS. What
-     neither gives you is the whole network — gateway, Postgres, Valkey, private
-     networking, managed TLS — standing up from a single pasted file in about 90
-     seconds.</p>
+    <div class="vs">
+      <figure class="pane pane--bad">
+        <figcaption class="pane__cap"><span class="pane__dot" aria-hidden="true"></span>Every other tunnel</figcaption>
+        <pre class="pane__body" translate="no"><span class="t-cmd">ngrok http 3000</span>   <span class="t-arw">→</span>  <span class="t-dim">https://…ngrok.io</span>
+<span class="t-cmd">^C</span>                <span class="t-arw">→</span>  <span class="t-dim">laptop closed</span>
+<span class="t-cmd">3 callbacks arrive</span><span class="t-arw">→</span>  <span class="t-fail">502 Bad Gateway</span>
+<span class="t-cmd">ngrok http 3000</span>   <span class="t-arw">→</span>  <span class="t-fail">gone. new URL. re-send by hand.</span></pre>
+      </figure>
+      <figure class="pane pane--good">
+        <figcaption class="pane__cap"><span class="pane__dot" aria-hidden="true"></span>Doorbell holds it</figcaption>
+        <pre class="pane__body" translate="no"><span class="t-cmd">doorbell 3000</span>     <span class="t-arw">→</span>  <span class="t-url">https://…/t/shop/</span>
+<span class="t-cmd">^C</span>                <span class="t-arw">→</span>  <span class="t-dim">laptop closed</span>
+<span class="t-cmd">3 callbacks arrive</span><span class="t-arw">→</span>  <span class="t-held">202 Accepted, stored</span>
+<span class="t-cmd">doorbell 3000</span>     <span class="t-arw">→</span>  <span class="t-ok">all 3 delivered, in order</span></pre>
+      </figure>
+    </div>
+    <p class="sec__foot">Same URL both times. That matters more than it looks: a sender you
+       registered a URL with does not come back to ask for a new one.</p>
 
-  <h2 id="deploy">Deploy Your Own</h2>
-  <ol class="steps">
-    <li>Copy <code translate="no">zerops-import.yml</code> from the repository.</li>
-    <li>In app.zerops.io, choose <em>Import a project using YAML template</em> and paste it.</li>
-    <li>Wait about 90&nbsp;seconds.</li>
-    <li>Open the raw TCP control port: <code translate="no">gw</code> → Public access →
-        port routing, public 7000 → internal 7000, protocol <code translate="no">tcp</code>.</li>
-  </ol>
-  <p>That file is the product: ngrok is a SaaS you rent, this is a network you own.</p>
+    <h3 class="sub">How the others handle it</h3>
+    <p class="sec__lede">All good tools. None is built to <em>hold</em> a request, because none
+       has anywhere to put one. Capability only - not price.</p>
 
-  <footer class="muted" style="margin-top:var(--s-12);padding-top:var(--s-5);border-top:1px solid var(--line);font-size:var(--fs-md)">
-    Built for The Zerops Challenge, 8–9 August 2026 · MIT licensed ·
-    <a href="/dashboard">Dashboard</a> · <a href="/api/tunnels">API</a>
+    <div class="matrix-wrap">
+      <table class="matrix">
+        <caption class="sr-only">Capability comparison between Doorbell and other tunnels</caption>
+        <thead>
+          <tr>
+            <th scope="col">Can it…</th>
+            <th scope="col">ngrok</th>
+            <th scope="col">Cloudflare&nbsp;Tunnel</th>
+            <th scope="col">localtunnel</th>
+            <th scope="col">frp / bore</th>
+            <th scope="col" class="matrix__us">Doorbell</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Keep a request that arrives while your agent is offline</th>
+            <td><span class="no">✕</span><span class="matrix__note">ERR_NGROK_3200</span></td>
+            <td><span class="no">✕</span><span class="matrix__note">origin error</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td class="matrix__us"><span class="yes">✓</span><span class="matrix__note">stored in Postgres</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Answer the sender with a success, not an error</th>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td class="matrix__us"><span class="yes">✓</span><span class="matrix__note">202 Accepted</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Deliver what it kept, in order, on reconnect</th>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td class="matrix__us"><span class="yes">✓</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Replay a captured request</th>
+            <td><span class="yes">✓</span><span class="matrix__note">while connected</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td class="matrix__us"><span class="yes">✓</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Show a live request inspector</th>
+            <td><span class="yes">✓</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td class="matrix__us"><span class="yes">✓</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Run on infrastructure you control</th>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="no">✕</span></td>
+            <td><span class="yes">✓</span></td>
+            <td class="matrix__us"><span class="yes">✓</span></td>
+          </tr>
+          <tr>
+            <th scope="row">Bring gateway, database, queue and TLS up from one file</th>
+            <td><span class="dash">-</span></td>
+            <td><span class="dash">-</span></td>
+            <td><span class="dash">-</span></td>
+            <td><span class="no">✕</span><span class="matrix__note">you assemble it</span></td>
+            <td class="matrix__us"><span class="yes">✓</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sec__foot"><strong>ngrok could not hold your webhooks even if it wanted to</strong>
+       - holding them means storing your payloads, signatures and tokens on someone else's
+       servers. Doorbell can, because the database is yours. That is the whole argument: the
+       holding is not a bolt-on feature, it is what owning the infrastructure buys you.</p>
+  </section>
+
+  <section class="sec" id="guarantees">
+    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">02</span>What the gateway guarantees</h2>
+    <p class="sec__lede">Not "forwards HTTP". These are the promises the system is built to keep,
+       and every one of them is visible in the dashboard while it happens.</p>
+
+    <div class="cards">
+      <article class="card2">
+        <h3><span class="card2__n" aria-hidden="true">01</span>Nothing is dropped</h3>
+        <p>Written to Postgres <strong>before</strong> the sender is answered - never held only in memory.</p>
+      </article>
+      <article class="card2">
+        <h3><span class="card2__n" aria-hidden="true">02</span>Answered straight away</h3>
+        <p><code translate="no">202 Accepted</code>, not <code translate="no">502</code>, so the sender's retry policy never fires.</p>
+      </article>
+      <article class="card2">
+        <h3><span class="card2__n" aria-hidden="true">03</span>Delivered in order</h3>
+        <p>The queue drains oldest first, so <code translate="no">created</code> still arrives before <code translate="no">updated</code>.</p>
+      </article>
+      <article class="card2">
+        <h3><span class="card2__n" aria-hidden="true">04</span>Delivered once</h3>
+        <p>An atomic lease means two laptops reconnecting cannot both drain the same queue.</p>
+      </article>
+      <article class="card2">
+        <h3><span class="card2__n" aria-hidden="true">05</span>Replay on demand</h3>
+        <p>Re-send any stored request byte for byte, whenever you like - press <kbd>r</kbd>.</p>
+      </article>
+      <article class="card2">
+        <h3><span class="card2__n" aria-hidden="true">06</span>A URL that does not move</h3>
+        <p>Names are reserved, so it survives restarts. Register it with the sender once.</p>
+      </article>
+      <article class="card2">
+        <h3><span class="card2__n" aria-hidden="true">07</span>Secrets are never stored</h3>
+        <p>Signing and auth headers are redacted before the database, and matched by shape - not by vendor name.</p>
+      </article>
+      <article class="card2">
+        <h3><span class="card2__n" aria-hidden="true">08</span>You can see all of it</h3>
+        <p>Live request and response bodies, plus a timeline of exactly when a tunnel was offline.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="sec" id="install">
+    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">03</span>Try it against this gateway</h2>
+    <p class="sec__lede">Four lines. The tunnel is live before the fourth one finishes.</p>
+
+    <figure class="term">
+      <figcaption class="term__cap">Terminal
+        <button type="button" class="btn btn--sm" data-copy="cmd">Copy</button>
+      </figcaption>
+      <pre class="term__body" id="cmd" translate="no">$ go install github.com/danishalisiddiqui/doorbell/cmd/doorbell@latest
+$ export DOORBELL_GATEWAY=<span id="host">…</span>
+$ export DOORBELL_TOKEN=&lt;ask the operator&gt;
+$ doorbell 3000</pre>
+    </figure>
+
+    <div class="notes">
+      <div class="note-block">
+        <h3>No Go?</h3>
+        <p>Prebuilt binaries for macOS, Linux and Windows are built by
+           <code translate="no">make&nbsp;release</code>.</p>
+      </div>
+      <div class="note-block">
+        <h3>What you get back</h3>
+        <p><code class="v-accent" translate="no">https://…/t/shop/</code> - a stable URL. Register
+           it once with whatever is calling you.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="zerops">
+    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">04</span>Why this had to be built on Zerops</h2>
+    <p class="sec__lede sec__lede--claim">Doorbell is not an app that happens to run on Zerops.
+       It is one that cannot exist unless six separate things are true at the same time - and
+       almost no platform makes all six true at once.</p>
+    <p class="sec__lede">On Zerops the entire middle column is one YAML file and ninety seconds.</p>
+
+    <div class="reqs">
+      <div class="reqs__head" aria-hidden="true">
+        <span>What Doorbell needs</span><span>On Zerops</span><span>What you would do instead</span>
+      </div>
+      <div class="reqs__row">
+        <div class="reqs__need">
+          <p class="reqs__n" aria-hidden="true">01</p>
+          <div>
+            <h3>A raw public TCP port</h3>
+            <p class="reqs__why">The multiplexed control channel. Not HTTP.</p>
+          </div>
+        </div>
+        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
+          <span class="chip-yes" aria-label="yes">✓</span><span>Ports 10–65435, declared in <code translate="no">zerops.yaml</code></span>
+        </div>
+        <div class="reqs__cell" data-label="Instead">
+          <span class="chip-no" aria-label="no">✕</span><span>A VPS and your own firewall. No PaaS exposes one; managed TLS cannot sit in front of it.</span>
+        </div>
+      </div>
+      <div class="reqs__row">
+        <div class="reqs__need">
+          <p class="reqs__n" aria-hidden="true">02</p>
+          <div>
+            <h3>A process that never sleeps</h3>
+            <p class="reqs__why">A socket held for hours. If it sleeps, every tunnel dies.</p>
+          </div>
+        </div>
+        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
+          <span class="chip-yes" aria-label="yes">✓</span><span>No scale-to-zero</span>
+        </div>
+        <div class="reqs__cell" data-label="Instead">
+          <span class="chip-no" aria-label="no">✕</span><span>Serverless cannot express it at all - this is not "harder on Vercel", it is impossible there.</span>
+        </div>
+      </div>
+      <div class="reqs__row">
+        <div class="reqs__need">
+          <p class="reqs__n" aria-hidden="true">03</p>
+          <div>
+            <h3>Postgres, privately reachable</h3>
+            <p class="reqs__why">The mailbox - what makes 202 honest.</p>
+          </div>
+        </div>
+        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
+          <span class="chip-yes" aria-label="yes">✓</span><span>One service in the same file</span>
+        </div>
+        <div class="reqs__cell" data-label="Instead">
+          <span class="chip-no" aria-label="no">✕</span><span>Provision, secure, patch, back up, monitor</span>
+        </div>
+      </div>
+      <div class="reqs__row">
+        <div class="reqs__need">
+          <p class="reqs__n" aria-hidden="true">04</p>
+          <div>
+            <h3>Valkey</h3>
+            <p class="reqs__why">Routing and events, so any container can answer for any tunnel.</p>
+          </div>
+        </div>
+        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
+          <span class="chip-yes" aria-label="yes">✓</span><span>One service in the same file</span>
+        </div>
+        <div class="reqs__cell" data-label="Instead">
+          <span class="chip-no" aria-label="no">✕</span><span>Another box to run, secure and watch</span>
+        </div>
+      </div>
+      <div class="reqs__row">
+        <div class="reqs__need">
+          <p class="reqs__n" aria-hidden="true">05</p>
+          <div>
+            <h3>A private network</h3>
+            <p class="reqs__why">The database holds captured bodies. It must never face the internet.</p>
+          </div>
+        </div>
+        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
+          <span class="chip-yes" aria-label="yes">✓</span><span>VXLAN by default, hostnames resolve, nothing to configure</span>
+        </div>
+        <div class="reqs__cell" data-label="Instead">
+          <span class="chip-no" aria-label="no">✕</span><span>VPC, subnets, security groups, and the discipline to keep them right</span>
+        </div>
+      </div>
+      <div class="reqs__row">
+        <div class="reqs__need">
+          <p class="reqs__n" aria-hidden="true">06</p>
+          <div>
+            <h3>Managed TLS and HTTP ingress</h3>
+            <p class="reqs__why">Senders will not deliver to a bad certificate.</p>
+          </div>
+        </div>
+        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
+          <span class="chip-yes" aria-label="yes">✓</span><span>Automatic on the project subdomain</span>
+        </div>
+        <div class="reqs__cell" data-label="Instead">
+          <span class="chip-no" aria-label="no">✕</span><span>Certificates, renewal, a reverse proxy in front of the raw port</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="qa-pair">
+    <div class="qa qa--ask">
+      <h3>“Could you not just put this on Vercel?”</h3>
+      <p><strong>Half of it, yes.</strong> The mailbox is an HTTP endpoint that writes to
+         Postgres, and that runs almost anywhere.</p>
+      <p><strong>The tunnel does not.</strong> A serverless function stops when it answers, so
+         nothing is left holding your socket. Vercel rejects even WebSocket handshakes regardless
+         of configuration - a raw TCP listener is far further out of reach than that.</p>
+      <p>The platform choice here is not a preference. It is the feature.</p>
+    </div>
+
+    <div class="qa">
+      <h3>Honest caveat</h3>
+      <p>Any one of these is easy somewhere - a $5 VPS gives you the raw port. What no other
+         target gives you is all six at once, on one private network, from a single pasted file.</p>
+    </div>
+    </div>
+  </section>
+
+  <section class="sec" id="deploy">
+    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">05</span>Deploy your own</h2>
+    <p class="sec__lede">That YAML file is the product: ngrok is a SaaS you rent, this is a
+       network you own.</p>
+
+    <ol class="steps">
+      <li>Copy <code translate="no">zerops-import.yml</code> from the repository.</li>
+      <li>In app.zerops.io, choose <em>Import a project using YAML template</em> and paste it.</li>
+      <li>Wait about 90 seconds.</li>
+      <li>Open the raw TCP control port: gw → Public access → port routing, public 7000 →
+          internal 7000, protocol <code translate="no">tcp</code>.</li>
+    </ol>
+  </section>
+
+  <footer class="sitefoot">
+    <p class="mark"><span class="mark__ring" aria-hidden="true"></span><strong>Doorbell</strong></p>
+    <p class="sitefoot__meta">Built for The Zerops Challenge, 8–9 August 2026 · MIT licensed</p>
+    <nav class="sitefoot__links" aria-label="Elsewhere">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/api/info">API</a>
+      <a href="https://github.com/danishalisiddiqui/doorbell" rel="noopener">Repository</a>
+    </nav>
   </footer>
 </main>
 
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
 <script type="module">
-import { num, toast, getJSON, copy } from '/assets/app.js';
+import { num, toast, copy, getJSON, initTheme, paintTape } from '/assets/app.js';
 
-document.getElementById('host').textContent = location.hostname;
+const TAPE_MIN = 30;
 
-/* Live counters. A landing page that lies about the system behind it is worse
-   than one with no numbers, so a failure says so rather than showing zeros. */
-async function loadStats() {
-  const set = (id, value) => { document.getElementById(id).textContent = value; };
-  try {
-    const info = await getJSON('/api/info');
-    set('s-mode', info.mode ?? '—');
-    set('s-tunnels', num(info.tunnels ?? 0));
-    set('s-held', num(info.held ?? 0));
-  } catch {
-    for (const id of ['s-mode', 's-tunnels', 's-held']) {
-      const el = document.getElementById(id);
-      el.textContent = 'unavailable';
-      el.closest('.stat').classList.add('stat--error');
-    }
-  }
-}
+document.getElementById('host').textContent = location.host;
 
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-copy]');
   if (!btn) return;
-  const source = document.getElementById(btn.dataset.copy);
-  copy(source.innerText, 'Commands copied to clipboard');
+  copy(document.getElementById(btn.dataset.copy).textContent, 'Commands copied');
 });
 
-loadStats();
-setInterval(loadStats, 10000);
+/* Live counters and the tape. A landing page that lies about the system behind
+   it is worse than one with no numbers, so a failure says so rather than
+   quietly showing zeros. */
+async function load() {
+  const dot = document.getElementById('dot');
+  try {
+    const [info, spans] = await Promise.all([
+      getJSON('/api/info'),
+      getJSON(`/api/timeline?minutes=${TAPE_MIN}`),
+    ]);
+    document.getElementById('s-mode').textContent = info.mode ?? '-';
+    document.getElementById('s-tunnels').textContent = num(info.tunnels ?? 0);
+    document.getElementById('s-held').textContent = num(info.held ?? 0);
+    dot.className = 'dot dot--live';
+    document.getElementById('liveLabel').textContent = 'Live';
+    paintTape(document.getElementById('tapeTrack'), spans, [], TAPE_MIN);
+  } catch {
+    for (const id of ['s-mode', 's-tunnels', 's-held']) {
+      const el = document.getElementById(id);
+      el.textContent = 'unavailable';
+      el.className = 'ledger__value v-fail';
+    }
+    dot.className = 'dot dot--down';
+    document.getElementById('liveLabel').textContent = 'Unreachable';
+  }
+}
+
+load();
+setInterval(load, 10000);
+initTheme(document.getElementById('themeToggle'));
 </script>

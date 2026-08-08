@@ -549,7 +549,8 @@ func (g *gateway) refuse(conn net.Conn, reason string) {
 	conn.Close()
 }
 
-// urlFor builds the address a developer pastes into Stripe.
+// urlFor builds the address a developer registers with whatever is calling
+// them — a payment provider, a git host, a CI job, any vendor's webhook console.
 func (g *gateway) urlFor(id string) string {
 	if g.cfg.mode == modeWildcard {
 		return fmt.Sprintf("https://%s.%s", id, g.cfg.baseDomain)
@@ -580,6 +581,9 @@ func (g *gateway) httpServer() *http.Server {
 	// Public by design: the tunnel data path, the landing page, its assets, and
 	// a counters-only status endpoint that exposes no traffic.
 	mux.HandleFunc("/api/info", g.handleInfo)
+	// Public on purpose: the overview draws the same tape as the dashboard, and
+	// it carries only tunnel names, times and counts. See handleTimeline.
+	mux.HandleFunc("/api/timeline", g.handleTimeline)
 	mux.HandleFunc("/t/", g.handleTunnelRequest)
 	mux.Handle("/assets/", dashboard.AssetHandler())
 	mux.HandleFunc("/", g.handleIndex)

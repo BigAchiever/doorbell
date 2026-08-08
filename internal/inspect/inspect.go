@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -38,6 +39,21 @@ type Record struct {
 	// back around the Valkey bus and skip them, instead of showing every
 	// request twice.
 	Origin string `json:"origin,omitempty"`
+
+	// Source marks a request the gateway generated rather than proxied live:
+	// "buffered" for one drained from the mailbox on reconnect, "replay" for one
+	// re-sent on demand. Empty for ordinary traffic.
+	//
+	// This is a field rather than a suffix glued onto Path. Path is consumed by
+	// API clients and copied out of the inspector, and a decorated one is simply
+	// wrong — it stopped being the path the sender asked for.
+	Source string `json:"source,omitempty"`
+
+	// PendingID links this record back to the stored request it came from, so
+	// the dashboard can offer replay from the request list itself rather than
+	// only from the mailbox panel. Zero for ordinary live traffic, which has no
+	// stored copy to re-send.
+	PendingID int64 `json:"pendingId,omitempty"`
 
 	Method  string            `json:"method"`
 	Path    string            `json:"path"`
@@ -189,10 +205,27 @@ func FlattenHeader(h http.Header) map[string]string {
 // headers and would have started replaying the placeholder as a real
 // credential the moment that string changed.
 func IsSensitive(key string) bool {
-	switch http.CanonicalHeaderKey(key) {
-	case "Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie",
-		"X-Api-Key", "X-Auth-Token", "Stripe-Signature":
+	k := http.CanonicalHeaderKey(key)
+
+	switch k {
+	case "Authorization", "Proxy-Authorization", "Cookie", "Set-Cookie":
 		return true
+	}
+
+	// Naming every provider is a losing game — the list was Stripe-only, so a
+	// GitHub delivery put X-Hub-Signature-256 straight into Postgres in the
+	// clear. Webhook signing headers converge on a handful of shapes, so match
+	// the shape and the next provider is covered before anyone has heard of it.
+	//
+	// Deliberately broad. A header caught here is redacted AND dropped from a
+	// replay, so over-matching costs a header the local app probably could not
+	// have used anyway: signatures are computed over a body at a timestamp, and
+	// a re-send is neither. Under-matching costs a leaked credential. The
+	// asymmetry only points one way.
+	for _, frag := range []string{"Signature", "Token", "Secret", "Api-Key", "Apikey", "Hmac"} {
+		if strings.Contains(k, frag) {
+			return true
+		}
 	}
 	return false
 }

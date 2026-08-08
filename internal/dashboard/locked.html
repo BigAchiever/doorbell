@@ -1,30 +1,61 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a0c0f" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#fbfcfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
 <title>Operator Token Required · Doorbell</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/ds.css">
+<script>/* Applied before first paint: rendering the wrong theme for a frame and
+   then correcting it is worse than having no control at all. */
+try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+
 
 <header class="app-header">
   <p class="brand"><strong>Doorbell</strong></p>
   <nav class="nav" aria-label="Primary"><a href="/">Overview</a></nav>
+  <div class="spacer"></div>
+  <button type="button" class="btn btn--icon btn--ghost" id="themeToggle"><span data-icon aria-hidden="true">☾</span></button>
 </header>
 
-<main class="prose" id="main">
-  <h1>Operator Token Required</h1>
-  <p class="lede">The dashboard shows captured request and response bodies, so it
-     is not public.</p>
+<main class="gate" id="main">
+  <div class="gate__card">
+    <h1 class="gate__title">Paste your operator token</h1>
+    <p class="gate__lede">The dashboard replays captured request and response bodies,
+       so it stays behind a token. Your tunnels keep running without it - only this
+       view is gated.</p>
 
-  <h2>Open It From a Link</h2>
-  <p>Visit this once and the token is stored in a cookie for a week:</p>
-  <pre class="code" translate="no">/dashboard?token=&lt;your DOORBELL_ADMIN_TOKEN&gt;</pre>
+    <!-- A GET form, because ?token= is the flow the gateway already implements:
+         it validates, sets the cookie, and redirects to a clean URL. -->
+    <form class="gate__form" action="/dashboard" method="get">
+      <label class="sr-only" for="token">Operator token</label>
+      <input class="input mono" id="token" name="token" type="password"
+             autocomplete="current-password" spellcheck="false"
+             placeholder="DOORBELL_ADMIN_TOKEN" required autofocus>
+      <button class="btn btn--primary" type="submit">Unlock</button>
+    </form>
+    <p class="gate__note">Remembered on this device for 7 days, in a cookie that is
+       HttpOnly, SameSite=Lax and - behind the Zerops balancer - Secure.</p>
 
-  <h2>Or Call the API Directly</h2>
-  <pre class="code" translate="no">curl -H "Authorization: Bearer $DOORBELL_ADMIN_TOKEN" \
+    <div class="gate__more">
+      <section>
+        <h2>Don't have it?</h2>
+        <p>It is the same <code translate="no">DOORBELL_ADMIN_TOKEN</code> your CLI uses.
+           The gateway generated it at deploy time; it is in the service's environment
+           variables in the Zerops dashboard.</p>
+      </section>
+      <section>
+        <h2>Prefer the API?</h2>
+        <pre class="code" translate="no">curl -H "Authorization: Bearer $TOKEN" \
   https://your-gateway/api/requests</pre>
-
-  <p class="muted">The token is the same one your <code translate="no">doorbell</code>
-     CLI uses. Tunnels themselves keep working without it — only the operator
-     view is gated.</p>
+      </section>
+    </div>
+  </div>
 </main>
+
+<script type="module">
+import { initTheme } from '/assets/app.js';
+initTheme(document.getElementById('themeToggle'));
+</script>

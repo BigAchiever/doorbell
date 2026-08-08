@@ -27,10 +27,10 @@ export function num(value) {
   return nf.format(Number(value) || 0);
 }
 
-/** Wall-clock time in the viewer's locale and zone — never a hardcoded format. */
+/** Wall-clock time in the viewer's locale and zone - never a hardcoded format. */
 export function time(iso) {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : timeFmt.format(d);
+  return Number.isNaN(d.getTime()) ? '-' : timeFmt.format(d);
 }
 
 /** Full date and time, for tooltips where the bare clock is ambiguous. */
@@ -127,7 +127,7 @@ export async function getJSON(url, { signal } = {}) {
     let detail = '';
     try {
       const body = await res.json();
-      detail = body?.error ? ` — ${body.error}` : '';
+      detail = body?.error ? ` - ${body.error}` : '';
     } catch { /* a non-JSON error body is not worth reporting twice */ }
     throw new Error(`Request failed with ${res.status}${detail}`);
   }
@@ -158,7 +158,7 @@ export async function copy(text, label = 'Copied to clipboard') {
     await navigator.clipboard.writeText(text);
     toast(label, 'ok');
   } catch {
-    toast('Could not copy — your browser blocked clipboard access.', 'error');
+    toast('Could not copy - your browser blocked clipboard access.', 'error');
   }
 }
 
@@ -169,4 +169,149 @@ export function renderState(el, { title, hint, tone = 'muted' }) {
       <p class="state__title">${esc(title)}</p>
       ${hint ? `<p class="state__hint ${tone === 'error' ? '' : 'muted'}">${esc(hint)}</p>` : ''}
     </div>`;
+}
+
+/* ── theme ───────────────────────────────────────────────────────────────── */
+
+const THEME_KEY = 'doorbell-theme';
+
+function systemTheme() {
+  return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function storedTheme() {
+  try { return localStorage.getItem(THEME_KEY); } catch { return null; }
+}
+
+/**
+ * Wire the light/dark control.
+ *
+ * The stored choice is applied before first paint by a tiny inline script in
+ * each page's head - doing it from here would mean rendering the wrong theme
+ * for a frame and then flipping it, which is worse than having no control.
+ * This function only keeps the button in sync and records a new choice.
+ *
+ * With nothing stored the page follows the system, and keeps following it: the
+ * change listener below re-labels the button when the OS switches at dusk.
+ */
+export function initTheme(btn) {
+  const sync = () => {
+    if (!btn) return;
+    const current = document.documentElement.dataset.theme || systemTheme();
+    const next = current === 'dark' ? 'light' : 'dark';
+    btn.querySelector('[data-icon]').textContent = current === 'dark' ? '☀' : '☾';
+    btn.setAttribute('aria-label', `Switch to ${next} theme`);
+    btn.title = `Switch to ${next} theme`;
+  };
+
+  btn?.addEventListener('click', () => {
+    const current = document.documentElement.dataset.theme || systemTheme();
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem(THEME_KEY, next); } catch { /* private mode; the choice just will not persist */ }
+    sync();
+  });
+
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (!storedTheme()) sync();
+  });
+
+  sync();
+}
+
+/* ── timeline tape ───────────────────────────────────────────────────────── */
+
+/* Shared, because the overview and the dashboard draw the same object: a judge
+   should see the held requests on the landing page before reading a word, and
+   two copies of this would drift apart the first time either changed. */
+
+// Two spans this close together are one outage that flapped, not two.
+const GAP_JOIN_MS = 15_000;
+// Below this, "offline" is the ordinary race between a request arriving and the
+// drain picking it up - not something that happened to anyone.
+const GAP_MIN_MS = 3_000;
+
+/** Merge spans that overlap or nearly touch. Input need not be sorted. */
+export function mergeSpans(spans) {
+  const sorted = [...spans].sort((a, b) => a.from - b.from);
+  const out = [];
+  for (const s of sorted) {
+    const last = out[out.length - 1];
+    if (last && s.from <= last.to + GAP_JOIN_MS) {
+      last.to = Math.max(last.to, s.to);
+      last.open = last.open || s.open;
+      last.held += s.held;
+    } else {
+      out.push({ ...s });
+    }
+  }
+  // An open gap is kept whatever its length: the tunnel is down right now, and
+  // saying so matters more than the stretch being short so far.
+  return out.filter((g) => g.open || g.to - g.from >= GAP_MIN_MS);
+}
+
+/** Compact duration, e.g. "7m 20s". */
+export function humanSpan(msValue) {
+  const secs = Math.max(1, Math.round(msValue / 1000));
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return s ? `${m}m ${String(s).padStart(2, '0')}s` : `${m}m`;
+}
+
+/**
+ * Draw the tape into `track`.
+ *
+ * @param {HTMLElement} track
+ * @param {Array} stored  rows with receivedAt / deliveredAt / tunnelId
+ * @param {Array} ticks   proxied records with at / status / source (may be empty)
+ * @param {number} minutes window drawn
+ */
+export function paintTape(track, stored, ticks, minutes) {
+  const now = Date.now();
+  const since = now - minutes * 60_000;
+  const span = now - since;
+  const pct = (t) => Math.max(0, Math.min(100, ((t - since) / span) * 100));
+
+  // A stored request is proof the tunnel had nowhere to put it, so its
+  // received → delivered span is a stretch of downtime. Nothing has to record
+  // connects and disconnects for this to be exact.
+  const perTunnel = new Map();
+  for (const p of stored || []) {
+    const from = new Date(p.receivedAt).getTime();
+    const to = p.deliveredAt ? new Date(p.deliveredAt).getTime() : now;
+    if (!Number.isFinite(from) || to < since) continue;
+    if (!perTunnel.has(p.tunnelId)) perTunnel.set(p.tunnelId, []);
+    perTunnel.get(p.tunnelId).push({ from, to, open: !p.deliveredAt, held: 1 });
+  }
+
+  const gaps = [];
+  for (const [tunnelId, raw] of perTunnel) {
+    for (const g of mergeSpans(raw)) gaps.push({ ...g, tunnelId });
+  }
+  gaps.sort((a, b) => b.from - a.from);
+
+  let html = '';
+  for (const g of gaps) {
+    const left = pct(g.from), width = Math.max(pct(g.to) - left, 0.3);
+    // The label sits inside its own band. In a legend underneath, a reader has
+    // to match a name to one of several stripes by eye; written across the
+    // stripe there is nothing to match.
+    const label = `${g.tunnelId} ${g.open ? 'offline now' : 'offline'} · ` +
+                  `${humanSpan(g.to - g.from)} · ${g.held} held`;
+    html += `<div class="tape__gap${g.open ? ' tape__gap--open' : ''}"` +
+            ` style="left:${left}%;width:${width}%" title="${esc(label)}">` +
+            `<span class="tape__gapLabel">${esc(label)}</span></div>`;
+  }
+  for (const rec of ticks || []) {
+    const t = new Date(rec.at).getTime();
+    if (!Number.isFinite(t) || t < since) continue;
+    const kind = rec.source === 'buffered' ? ' tape__tick--held'
+      : (Number(rec.status) >= 400 || rec.error) ? ' tape__tick--failed' : '';
+    html += `<div class="tape__tick${kind}" style="left:${pct(t)}%"></div>`;
+  }
+  if (!gaps.length) {
+    html += `<p class="tape__quiet">No tunnel went offline in the last ${minutes} minutes - nothing needed holding.</p>`;
+  }
+  track.innerHTML = html;
+  return gaps;
 }

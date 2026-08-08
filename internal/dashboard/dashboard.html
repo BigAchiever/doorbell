@@ -1,107 +1,110 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a0c0f" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#fbfcfd" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
 <meta name="description" content="Live request inspector for your Doorbell tunnels.">
 <title>Dashboard · Doorbell</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/ds.css">
-<style>
-  /* Page-specific layout only. Anything reusable lives in ds.css. */
-  .layout {
-    display: grid;
-    grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-    height: calc(100dvh - var(--header-h));
-  }
-  .side {
-    border-right: 1px solid var(--line);
-    background: var(--bg-raised);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: var(--s-4);
-    padding-left: max(var(--s-4), env(safe-area-inset-left));
-  }
-  .side h2 {
-    margin: 0 0 var(--s-3);
-    font: 600 var(--fs-xs)/1 var(--mono);
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    color: var(--text-subtle);
-  }
-  .side section + section { margin-top: var(--s-8); }
-  .side .hint { font-size: var(--fs-sm); color: var(--text-subtle); margin: calc(var(--s-1) * -1) 0 var(--s-3); }
+<script>/* Applied before first paint: rendering the wrong theme for a frame and
+   then correcting it is worse than having no control at all. */
+try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 
-  .feed { overflow-y: auto; overscroll-behavior: contain; }
 
-  .tunnel { padding: var(--s-3); border: 1px solid var(--line); border-radius: var(--r-md); }
-  .tunnel + .tunnel { margin-top: var(--s-2); }
-  .tunnel__url { display: block; font: var(--fs-sm)/1.5 var(--mono); color: var(--accent); overflow-wrap: anywhere; }
-  .tunnel__meta { margin-top: var(--s-1); font-size: var(--fs-sm); color: var(--text-subtle); }
-
-  .mail { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-3);
-          border: 1px solid var(--line); border-radius: var(--r-md); }
-  .mail + .mail { margin-top: var(--s-2); }
-  .mail__what { font: 600 var(--fs-sm)/1.4 var(--mono); }
-  .mail__meta { font-size: var(--fs-xs); color: var(--text-subtle); }
-
-  /* Below the sidebar breakpoint the two panes stack and each scrolls the page
-     rather than itself — nested scroll areas on a phone are miserable. */
-  @media (max-width: 860px) {
-    .layout { grid-template-columns: 1fr; height: auto; }
-    .side { border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
-    .feed { overflow: visible; }
-    table.data th { position: static; }
-    /* The tunnel column is the first thing worth losing on a narrow screen. */
-    table.data .col-tunnel { display: none; }
-  }
-</style>
-
-<a class="skip-link" href="#main">Skip to Content</a>
+<body class="app">
+<a class="skip-link" href="#feed">Skip to Content</a>
 
 <header class="app-header">
-  <h1 class="brand">Doorbell <span class="mode" id="mode" translate="no">…</span></h1>
+  <p class="mark">
+    <span class="mark__ring" aria-hidden="true"></span>
+    <strong>Doorbell</strong>
+  </p>
+  <p class="hostchip mono" id="host" translate="no">…</p>
   <nav class="nav" aria-label="Primary">
     <a href="/">Overview</a>
     <a href="/dashboard" aria-current="page">Dashboard</a>
   </nav>
   <div class="spacer"></div>
-  <p class="row" style="font: var(--fs-sm)/1 var(--mono); color: var(--text-muted);">
-    <span class="dot" id="dot" aria-hidden="true"></span>
-    <span class="conn-label" id="conn" role="status" aria-live="polite">Connecting…</span>
-    <span class="sr-only" id="connSr" role="status" aria-live="polite">Connecting…</span>
+  <p class="live"><span class="dot" id="dot" aria-hidden="true"></span>
+    <span class="conn-label" id="conn">Connecting…</span></p>
+  <!-- Plain text, not pills: three bordered chips beside a bordered host chip
+       and a bordered ⌘K read as a row of buttons, none of which they are. -->
+  <p class="hmeta">
+    <span id="chipMode" translate="no">…</span>
+    <span id="chipTunnels">0 tunnels</span>
+    <span class="hmeta__held" id="chipHeld" hidden>0 held</span>
   </p>
+  <span class="sr-only" id="connSr" role="status" aria-live="polite">Connecting…</span>
+  <button type="button" class="btn btn--icon btn--ghost" id="themeToggle"><span data-icon aria-hidden="true">☾</span></button>
 </header>
 
-<div class="layout">
-  <aside class="side" aria-label="Tunnels and mailbox">
+<!-- Full width, above the columns. The gap is the one thing that belongs to
+     every tunnel at once, so it is not owned by any single pane. -->
+<section class="tape" id="tape" aria-labelledby="tapeTitle">
+  <div class="tape__head">
+    <h2 id="tapeTitle">Timeline · last 30 min</h2>
+    <p class="tape__key">shaded = tunnel offline, requests held</p>
+  </div>
+  <div class="tape__track" id="tapeTrack"></div>
+  <div class="tape__axis" aria-hidden="true">
+    <span>−30m</span><span>−20m</span><span>−10m</span><span>now</span>
+  </div>
+</section>
+
+<div class="console">
+  <!-- ── left rail ──────────────────────────────────────────────────────── -->
+  <aside class="rail" data-pane="rail" aria-label="Tunnels and filters">
+    <div class="panebar">
+      <h2>Tunnels &amp; filters</h2>
+      <span class="panebar__spacer"></span>
+      <button type="button" class="grip" draggable="true" data-grip="rail"
+              aria-label="Move the tunnels pane. Press the left or right arrow key to reorder."
+              title="Drag, or use ← →">⠿</button>
+    </div>
+
     <section aria-labelledby="h-tunnels">
-      <h2 id="h-tunnels">Live Tunnels</h2>
+      <h2 id="h-tunnels">Tunnels</h2>
       <div id="tunnels" aria-live="polite">
-        <div class="skeleton" style="height:66px" aria-hidden="true"></div>
+        <div class="skeleton" style="height:52px" aria-hidden="true"></div>
       </div>
     </section>
 
-    <section aria-labelledby="h-mailbox">
-      <h2 id="h-mailbox">Mailbox</h2>
-      <p class="hint">Requests that arrived while a tunnel was offline are held here
-        instead of being dropped. Replay re-sends any of them.</p>
-      <div id="mailbox" aria-live="polite">
-        <div class="skeleton" style="height:44px" aria-hidden="true"></div>
-      </div>
+    <section aria-labelledby="h-filter">
+      <h2 id="h-filter">Filter</h2>
+      <div class="filters" id="filters" role="group" aria-labelledby="h-filter"></div>
+    </section>
+
+    <section aria-labelledby="h-storage">
+      <h2 id="h-storage">Storage</h2>
+      <p class="rail__note">Bodies persist in Postgres, the queue lives in Valkey, and
+        both are on the project's private network. Nothing is lost when the gateway
+        restarts.</p>
     </section>
   </aside>
 
-  <main class="feed" id="main">
+  <!-- ── centre: timeline + request feed ────────────────────────────────── -->
+  <main class="feed" id="feed" data-pane="feed">
+    <div class="feed__head">
+      <h2 id="feedTitle">Requests · <span id="feedScope">all tunnels</span></h2>
+      <p class="feed__count tnum" id="feedCount"></p>
+      <button type="button" class="grip" draggable="true" data-grip="feed"
+              aria-label="Move the requests pane. Press the left or right arrow key to reorder."
+              title="Drag, or use ← →">⠿</button>
+    </div>
+
     <div class="table-wrap">
       <table class="data">
-        <caption class="sr-only">Requests proxied through your tunnels, newest first</caption>
+        <caption class="sr-only">Requests through your tunnels, newest first. Held requests are listed first.</caption>
         <thead>
           <tr>
-            <th scope="col" style="width:80px">Method</th>
+            <th scope="col" style="width:70px">Method</th>
             <th scope="col">Path</th>
-            <th scope="col" class="num" style="width:74px">Status</th>
-            <th scope="col" class="num" style="width:84px">Time</th>
-            <th scope="col" class="col-tunnel" style="width:110px">Tunnel</th>
+            <th scope="col" class="col-tunnel" style="width:96px">Tunnel</th>
+            <th scope="col" class="num" style="width:104px">Status</th>
+            <th scope="col" class="num" style="width:82px">When</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -109,231 +112,714 @@
     </div>
     <div id="feedState"></div>
   </main>
+
+  <!-- ── right: detail ──────────────────────────────────────────────────── -->
+  <aside class="detail" id="detail" data-pane="detail" aria-labelledby="detailTitle" hidden>
+    <div class="detail__head">
+      <h2 class="detail__title" id="detailTitle"></h2>
+      <button type="button" class="grip" draggable="true" data-grip="detail"
+              aria-label="Move the detail pane. Press the left or right arrow key to reorder."
+              title="Drag, or use ← →">⠿</button>
+      <button type="button" class="btn btn--icon btn--ghost" id="detailClose"
+              aria-label="Close details"><span aria-hidden="true">✕</span></button>
+    </div>
+    <p class="detail__meta mono" id="detailMeta"></p>
+    <div id="detailBanner"></div>
+    <div class="tabs" role="tablist" aria-label="Request detail">
+      <button type="button" class="tab" role="tab" id="tab-req" aria-selected="true">Request</button>
+      <button type="button" class="tab" role="tab" id="tab-res" aria-selected="false">Response</button>
+      <button type="button" class="tab" role="tab" id="tab-att" aria-selected="false">Attempts</button>
+    </div>
+    <div class="detail__body" id="detailBody"></div>
+    <div class="detail__foot" id="detailFoot"></div>
+  </aside>
 </div>
 
-<dialog class="sheet" id="detail" aria-labelledby="detailTitle">
-  <div class="sheet__head">
-    <h2 class="sheet__title grow truncate" id="detailTitle"></h2>
-    <button type="button" class="btn btn--icon btn--ghost" id="detailClose" aria-label="Close details">
-      <span aria-hidden="true">✕</span>
-    </button>
-  </div>
-  <div class="sheet__body" id="detailBody"></div>
-</dialog>
+<!-- A real bar across the foot of the console, not a floating pill: it is part
+     of the frame, so it never sits on top of the last row of the feed. -->
+<footer class="statusbar">
+  <p class="statusbar__keys" aria-hidden="true">
+    <span><kbd>j</kbd><kbd>k</kbd> move</span>
+    <span><kbd>↵</kbd> open</span>
+    <span><kbd>r</kbd> replay</span>
+    <span><kbd>esc</kbd> close</span>
+  </p>
+  <button type="button" class="statusbar__reset" id="resetLayout" hidden>Reset layout</button>
+  <p class="statusbar__clock tnum" id="clock" aria-hidden="true">--:--:--</p>
+</footer>
 
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
 <script type="module">
-import { esc, num, ms, dateTime, bytes, statusClass, toast, getJSON, postJSON, renderState }
+import { esc, num, ms, ago, dateTime, bytes, statusClass, toast, copy, getJSON, postJSON, renderState, initTheme, paintTape, humanSpan }
   from '/assets/app.js';
 
 const rowsEl   = document.getElementById('rows');
 const feedState= document.getElementById('feedState');
-const dialog   = document.getElementById('detail');
-const seen     = new Map();
+const detailEl = document.getElementById('detail');
 
-const MAX_ROWS = 250; // the DOM is bounded for the same reason the server ring buffer is
+/* ── state ───────────────────────────────────────────────────────────────── */
 
-/* ── request feed ────────────────────────────────────────────────────────── */
+// Proxied traffic, keyed by inspector id. Bounded for the same reason the
+// server's ring buffer is.
+const seen = new Map();
+const MAX_ROWS = 250;
 
-function showFeedState(kind) {
-  if (kind === 'empty') {
-    feedState.innerHTML = `
-      <div class="state">
-        <p class="state__title">No Requests Yet</p>
-        <p class="state__hint">Run <code translate="no">doorbell 3000</code>, then open your tunnel
-           URL. Requests appear here the moment they arrive.</p>
-      </div>`;
-  } else {
-    feedState.innerHTML = '';
+// Stored requests in the window: everything still held, plus everything
+// delivered recently. One fetch feeds both the timeline and the held rows.
+let pending = [];
+let counts = {};
+let filter = { kind: 'all', tunnel: null };
+let selectedKey = null;
+let rendered = new Set();   // row keys on screen, so arrivals can be told from repaints
+
+const WINDOW_MIN = 360;   // how far back stored requests are fetched
+const TAPE_MIN = 30;      // how much of it the tape draws
+
+/* ── unified row model ───────────────────────────────────────────────────── */
+
+/* The feed shows two kinds of thing: requests that were proxied, and requests
+   that are still waiting because there was nothing to proxy them to. They are
+   one list, not two panels - a held request IS a request, and splitting them
+   meant the newest thing on the page could be in either place. */
+
+function heldRows() {
+  return pending
+    .filter((p) => !p.deliveredAt)
+    .map((p) => ({
+      key: `p${p.id}`,
+      kind: 'held',
+      at: p.receivedAt,
+      tunnelId: p.tunnelId,
+      method: p.method,
+      path: p.path,
+      query: p.query,
+      headers: p.headers,
+      bodySize: p.bodySize,
+      pendingId: p.id,
+      attempts: p.attempts,
+    }));
+}
+
+function proxiedRows() {
+  return [...seen.values()].map((r) => ({
+    key: `r${r.id}`,
+    kind: r.source === 'buffered' ? 'delivered' : 'live',
+    rec: r,
+    at: r.at,
+    tunnelId: r.tunnelId,
+    method: r.method,
+    path: r.path,
+    query: r.query,
+    status: r.status,
+    error: r.error,
+    source: r.source,
+    pendingId: r.pendingId,
+    durMs: r.durMs,
+  }));
+}
+
+function visibleRows() {
+  let all = [...heldRows(), ...proxiedRows()];
+  if (filter.tunnel) all = all.filter((r) => r.tunnelId === filter.tunnel);
+  if (filter.kind === 'held') all = all.filter((r) => r.kind === 'held');
+  if (filter.kind === 'failed') {
+    all = all.filter((r) => Number(r.status) >= 400 || r.error);
+  }
+  // Held first - they are the only rows that still need a decision - then the
+  // rest newest-first.
+  all.sort((a, b) => {
+    if ((a.kind === 'held') !== (b.kind === 'held')) return a.kind === 'held' ? -1 : 1;
+    return new Date(b.at) - new Date(a.at);
+  });
+  return all.slice(0, MAX_ROWS);
+}
+
+function rowByKey(key) {
+  return visibleRows().find((r) => r.key === key) || null;
+}
+
+/* ── feed ────────────────────────────────────────────────────────────────── */
+
+function statusCell(row) {
+  if (row.kind === 'held') {
+    return `<span class="status--held">HELD</span>`;
+  }
+  const code = row.status || '-';
+  const cls = statusClass(row.status);
+  // The two codes a held request really has: what the caller was told at the
+  // door, and what the app said once it finally arrived. A bare "200" hides the
+  // entire point of the mailbox.
+  if (row.source === 'buffered') {
+    return `<span class="status--held">202</span><span class="status-arrow" aria-hidden="true">→</span>` +
+           `<span class="${cls}">${code}</span>`;
+  }
+  return `<span class="${cls}">${code}</span>`;
+}
+
+function spoken(row) {
+  if (row.kind === 'held') return `held, waiting ${ago(row.at)}, not yet delivered`;
+  if (row.source === 'buffered') {
+    return `answered 202 accepted at the gateway, then ${row.status || 'unknown'} from your app`;
+  }
+  return `status ${row.status || 'unknown'}${row.source === 'replay' ? ', replayed' : ''}`;
+}
+
+function renderFeed() {
+  const rows = visibleRows();
+  document.getElementById('feedCount').textContent =
+    rows.length ? `${num(rows.length)} shown` : '';
+  document.getElementById('feedScope').textContent = filter.tunnel || 'all tunnels';
+
+  if (!rows.length) {
+    rowsEl.innerHTML = '';
+    const filtered = filter.kind !== 'all' || filter.tunnel;
+    if (filtered) {
+      renderState(feedState, { title: 'Nothing matches this filter',
+                               hint: 'Clear it to see everything again.' });
+    } else if (!lastTunnels.length) {
+      // First run. The useful thing to say is not "empty" but "the gateway is
+      // already working" - including that anything arriving before the first
+      // tunnel connects is held rather than refused.
+      feedState.innerHTML = `
+        <div class="firstrun">
+          <p class="badge badge--ok">Gateway up</p>
+          <h3>Nothing is listening yet</h3>
+          <p class="firstrun__lede">The gateway is running and will accept requests the
+             moment a tunnel connects. Anything that arrives before then is held, not
+             dropped.</p>
+          <p class="detail__h">Run this on your machine</p>
+          <div class="snippet">
+            <pre class="code" id="firstrunCmd" translate="no">export DOORBELL_GATEWAY=${esc(location.host)}
+doorbell 3000</pre>
+            <button type="button" class="btn btn--sm" id="firstrunCopy">Copy</button>
+          </div>
+          <p class="firstrun__foot">This page turns into the request feed by itself. No refresh.</p>
+        </div>`;
+      document.getElementById('firstrunCopy')?.addEventListener('click', () =>
+        copy(document.getElementById('firstrunCmd').textContent, 'Commands copied'));
+    } else {
+      renderState(feedState, { title: 'No requests yet',
+                               hint: 'Open your tunnel URL - requests appear here the moment they arrive.' });
+    }
+    return;
+  }
+  feedState.innerHTML = '';
+
+  // Which keys are genuinely new since the last paint. Without this every row
+  // looks new on every render - the tbody is rebuilt wholesale - so the entry
+  // animation either never fires or fires on all of them at once.
+  const fresh = new Set(rows.map((r) => r.key).filter((k) => !rendered.has(k)));
+  const firstPaint = rendered.size === 0;
+
+  // Keyboard navigation walks these rows, so a rebuild must not silently drop
+  // the operator's place.
+  const focusedKey = document.activeElement?.closest?.('tr')?.dataset.key;
+
+  rowsEl.innerHTML = rows.map((row) => {
+    const path = row.path + (row.query ? `?${row.query}` : '');
+    // "waiting 4m", not "waiting 4m ago" - the wait is still running.
+    const when = row.kind === 'held'
+      ? `waiting ${humanSpan(Date.now() - new Date(row.at).getTime())}`
+      : ago(row.at);
+    // Nothing slides in on the first paint: a backfilled page would animate
+    // every row it already had, which reads as noise rather than arrival.
+    const isNew = !firstPaint && fresh.has(row.key);
+    return `<tr tabindex="0" role="button" data-key="${esc(row.key)}"` +
+      ` class="${row.kind === 'held' ? 'is-held' : ''}${row.key === selectedKey ? ' is-selected' : ''}` +
+      `${isNew ? ' is-new' : ''}"` +
+      ` aria-label="${esc(`${row.method} ${path} on ${row.tunnelId}, ${spoken(row)}, ${ago(row.at)}. Show details.`)}">` +
+      `<td><span class="verb">${esc(row.method)}</span></td>` +
+      `<td class="cell-path"><span class="path" title="${esc(path)}">${esc(path)}</span>` +
+        (row.source === 'replay' ? ` <span class="badge badge--muted">replay</span>` : '') +
+      `</td>` +
+      `<td class="subtle col-tunnel truncate">${esc(row.tunnelId)}</td>` +
+      `<td class="num">${statusCell(row)}</td>` +
+      `<td class="num muted">${esc(when)}</td>` +
+      `</tr>`;
+  }).join('');
+
+  rendered = new Set(rows.map((r) => r.key));
+  if (focusedKey) {
+    rowsEl.querySelector(`tr[data-key="${CSS.escape(focusedKey)}"]`)?.focus();
   }
 }
 
-function addRow(rec, isNew) {
-  if (seen.has(rec.id)) return;
-  seen.set(rec.id, rec);
-  showFeedState(null);
+// Delegated: the tbody is replaced wholesale on every render.
+rowsEl.addEventListener('click', (e) => {
+  const tr = e.target.closest('tr');
+  if (tr) select(tr.dataset.key);
+});
+rowsEl.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const tr = e.target.closest('tr');
+  if (!tr) return;
+  e.preventDefault();
+  select(tr.dataset.key);
+});
 
-  const path = rec.path + (rec.query ? `?${rec.query}` : '');
-  const tr = document.createElement('tr');
-  tr.tabIndex = 0;
-  tr.setAttribute('role', 'button');
-  tr.setAttribute('aria-label',
-    `${rec.method} ${path}, status ${rec.status || 'unknown'}, ${ms(rec.durMs)}. Show details.`);
-  if (isNew) tr.classList.add('is-new');
+/* ── detail pane ─────────────────────────────────────────────────────────── */
 
-  tr.innerHTML =
-    `<td><span class="verb verb--${esc(rec.method)}">${esc(rec.method)}</span></td>` +
-    `<td class="break">${esc(path)}</td>` +
-    `<td class="num ${statusClass(rec.status)}">${rec.status || '—'}</td>` +
-    `<td class="num muted"><time datetime="${esc(rec.at)}" title="${esc(dateTime(rec.at))}">${ms(rec.durMs)}</time></td>` +
-    `<td class="subtle col-tunnel truncate">${esc(rec.tunnelId)}</td>`;
+let tab = 'req';
 
-  const open = () => showDetail(rec);
-  tr.addEventListener('click', open);
-  tr.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
-  });
-
-  rowsEl.prepend(tr);
-  while (rowsEl.children.length > MAX_ROWS) rowsEl.lastElementChild.remove();
-}
-
-/* ── detail sheet ────────────────────────────────────────────────────────── */
+const REDACTED = '•••• redacted';
 
 function kvList(obj) {
   const keys = Object.keys(obj || {});
-  if (!keys.length) return '<p class="subtle" style="font-size:var(--fs-sm)">None</p>';
+  if (!keys.length) return '<p class="subtle sm">None</p>';
+  const anyRedacted = keys.some((k) => obj[k] === REDACTED);
   return `<dl class="kv">${keys.sort().map((k) =>
-    `<div><dt>${esc(k)}</dt><dd>${esc(obj[k])}</dd></div>`).join('')}</dl>`;
+    `<div><dt>${esc(k)}</dt><dd${obj[k] === REDACTED ? ' class="subtle"' : ''}>${esc(obj[k])}</dd></div>`).join('')}</dl>` +
+    // Saying this matters: the inspector shows the header was present, and
+    // without this line an operator would reasonably assume a re-send carries
+    // it. It does not - the real value was never stored.
+    (anyRedacted
+      ? `<p class="subtle sm">Redacted headers are not stored, so they are not sent on a
+         re-send either. A signature header will be absent rather than wrong.</p>`
+      : '');
 }
 
 function bodyBlock(text, wasCut) {
-  if (!text) return '<p class="subtle" style="font-size:var(--fs-sm)">Empty</p>';
+  if (!text) return '<p class="subtle sm">Empty</p>';
   let pretty = text;
-  try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch { /* not JSON, show raw */ }
+  try { pretty = JSON.stringify(JSON.parse(text), null, 2); } catch { /* not JSON */ }
   return `<pre class="code" translate="no">${esc(pretty)}</pre>` +
-    (wasCut ? `<p class="badge badge--warn">Truncated — first ${bytes(32 * 1024)} only</p>` : '');
+    (wasCut ? `<p class="badge badge--warn">Truncated - first ${bytes(32 * 1024)} only</p>` : '');
 }
 
-let lastFocused = null;
-
-function showDetail(rec) {
-  lastFocused = document.activeElement;
-  document.getElementById('detailTitle').textContent =
-    `${rec.method} ${rec.path} → ${rec.status} · ${ms(rec.durMs)}`;
-  document.getElementById('detailBody').innerHTML =
-    (rec.error ? `<h3 class="sr-only">Error</h3><pre class="code">${esc(rec.error)}</pre>` : '') +
-    `<h3 class="subtle" style="font:600 var(--fs-xs)/1 var(--mono);text-transform:uppercase;letter-spacing:.09em;margin:0 0 var(--s-2)">Request Headers</h3>${kvList(rec.reqHead)}` +
-    `<h3 class="subtle" style="font:600 var(--fs-xs)/1 var(--mono);text-transform:uppercase;letter-spacing:.09em;margin:var(--s-5) 0 var(--s-2)">Request Body</h3>${bodyBlock(rec.reqBody, rec.reqCut)}` +
-    `<h3 class="subtle" style="font:600 var(--fs-xs)/1 var(--mono);text-transform:uppercase;letter-spacing:.09em;margin:var(--s-5) 0 var(--s-2)">Response Headers</h3>${kvList(rec.resHead)}` +
-    `<h3 class="subtle" style="font:600 var(--fs-xs)/1 var(--mono);text-transform:uppercase;letter-spacing:.09em;margin:var(--s-5) 0 var(--s-2)">Response Body</h3>${bodyBlock(rec.resBody, rec.resCut)}`;
-  dialog.showModal();
+function select(key) {
+  const row = rowByKey(key);
+  if (!row) return;
+  selectedKey = key;
+  tab = 'req';
+  renderDetail();
+  renderFeed();
+  // Keep focus with the row so j/k continue from where the operator is looking.
+  rowsEl.querySelector(`tr[data-key="${CSS.escape(key)}"]`)?.focus();
 }
 
-document.getElementById('detailClose').addEventListener('click', () => dialog.close());
-// Restore focus to whatever opened the sheet, however it was dismissed (button,
-// Escape, or backdrop) — otherwise keyboard focus lands back at the document top.
-dialog.addEventListener('close', () => lastFocused?.focus?.());
+function closeDetail() {
+  selectedKey = null;
+  detailEl.hidden = true;
+  renderFeed();
+}
 
-/* ── sidebar ─────────────────────────────────────────────────────────────── */
+function renderDetail() {
+  const row = rowByKey(selectedKey);
+  if (!row) { detailEl.hidden = true; return; }
+  detailEl.hidden = false;
 
-async function loadTunnels() {
-  const el = document.getElementById('tunnels');
-  try {
-    const list = await getJSON('/api/tunnels');
-    if (!list.length) {
-      renderState(el, { title: 'No tunnels open', hint: 'Start one with doorbell 3000.' });
-      return;
-    }
-    el.innerHTML = list.map((t) => `
-      <article class="tunnel">
-        <a class="tunnel__url" href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.url)}</a>
-        <p class="tunnel__meta tnum">→ localhost:${t.localPort} · ${num(t.requests)} requests</p>
-      </article>`).join('');
-  } catch (err) {
-    renderState(el, { title: 'Could not load tunnels', hint: err.message, tone: 'error' });
+  const path = row.path + (row.query ? `?${row.query}` : '');
+  document.getElementById('detailTitle').textContent = `${row.method} ${path}`;
+
+  const bits = [row.tunnelId];
+  if (row.bodySize != null) bits.push(bytes(row.bodySize));
+  if (row.durMs != null) bits.push(ms(row.durMs));
+  bits.push(dateTime(row.at));
+  document.getElementById('detailMeta').textContent = bits.join(' · ');
+
+  const banner = document.getElementById('detailBanner');
+  if (row.kind === 'held') {
+    const waited = humanSpan(Date.now() - new Date(row.at).getTime());
+    banner.innerHTML = `<p class="note note--held"><b>Waiting ${esc(waited)}.</b>
+      The caller already received 202 Accepted - nothing was dropped. It will be
+      delivered automatically the moment ${esc(row.tunnelId)} reconnects.</p>`;
+  } else if (row.source === 'buffered') {
+    banner.innerHTML = `<p class="note note--ok"><b>Delivered from the mailbox.</b>
+      Held while ${esc(row.tunnelId)} was offline, then handed over in the original order.</p>`;
+  } else {
+    banner.innerHTML = '';
   }
-}
 
-async function loadMailbox() {
-  const el = document.getElementById('mailbox');
-  try {
-    const [tunnels, held] = await Promise.all([
-      getJSON('/api/tunnels'),
-      getJSON('/api/mailbox'),
-    ]);
-    const names = new Set([...tunnels.map((t) => t.id), ...Object.keys(held || {})]);
-    if (!names.size) {
-      renderState(el, { title: 'Nothing stored', hint: 'Held and replayable requests show up here.' });
-      return;
-    }
+  // A held request has no response yet - offering an empty tab is a dead end.
+  document.getElementById('tab-res').disabled = row.kind === 'held';
+  // Attempts only exist for something that was stored and tried.
+  document.getElementById('tab-att').disabled = !row.pendingId;
+  if ((tab === 'res' && row.kind === 'held') || (tab === 'att' && !row.pendingId)) tab = 'req';
 
-    const groups = await Promise.all([...names].map(async (n) => {
-      try { return [n, await getJSON(`/api/mailbox?tunnel=${encodeURIComponent(n)}`)]; }
-      catch { return [n, []]; }
-    }));
-    const items = groups.flatMap(([n, list]) => (list || []).map((p) => ({ ...p, tunnel: n })));
+  detailEl.querySelectorAll('.tab').forEach((t) => {
+    t.setAttribute('aria-selected', String(t.id === `tab-${tab}`));
+  });
 
-    if (!items.length) {
-      renderState(el, { title: 'Nothing stored', hint: 'Held and replayable requests show up here.' });
-      return;
-    }
-
-    el.innerHTML = items.slice(0, 12).map((p) => {
-      const sent = Boolean(p.deliveredAt);
-      const what = `${p.method} ${p.path}`;
-      return `
-        <div class="mail">
-          <span class="badge ${sent ? 'badge--ok' : 'badge--warn'}">${sent ? 'Sent' : 'Held'}</span>
-          <span class="grow">
-            <span class="mail__what truncate" style="display:block" title="${esc(what)}">${esc(what)}</span>
-            <span class="mail__meta tnum">${esc(p.tunnel)} · ${bytes(p.bodySize)}</span>
-          </span>
-          <button type="button" class="btn btn--sm" data-replay="${p.id}"
-                  aria-label="Replay ${esc(what)} on tunnel ${esc(p.tunnel)}">Replay</button>
-        </div>`;
-    }).join('');
-  } catch (err) {
-    renderState(el, { title: 'Could not load the mailbox', hint: err.message, tone: 'error' });
+  const rec = row.rec;
+  const body = document.getElementById('detailBody');
+  if (tab === 'req') {
+    body.innerHTML =
+      `<h3 class="detail__h">Headers</h3>${kvList(row.headers || rec?.reqHead)}` +
+      `<h3 class="detail__h">Body</h3>${row.kind === 'held'
+        ? `<p class="subtle sm">${esc(bytes(row.bodySize))} stored in Postgres. It is replayed byte for byte - the dashboard does not read it until it is delivered.</p>`
+        : bodyBlock(rec?.reqBody, rec?.reqCut)}`;
+  } else if (tab === 'res') {
+    body.innerHTML =
+      (rec?.error ? `<p class="note note--fail">${esc(rec.error)}</p>` : '') +
+      `<h3 class="detail__h">Headers</h3>${kvList(rec?.resHead)}` +
+      `<h3 class="detail__h">Body</h3>${bodyBlock(rec?.resBody, rec?.resCut)}`;
+  } else {
+    const p = pending.find((x) => x.id === row.pendingId);
+    const tries = Number(p?.attempts ?? 0);
+    body.innerHTML =
+      `<h3 class="detail__h">Delivery</h3>` +
+      `<dl class="kv">` +
+        `<div><dt>Arrived</dt><dd>${esc(dateTime(p?.receivedAt ?? row.at))}</dd></div>` +
+        `<div><dt>Attempts</dt><dd>${num(tries)}</dd></div>` +
+        `<div><dt>Delivered</dt><dd>${p?.deliveredAt ? esc(dateTime(p.deliveredAt)) : 'not yet'}</dd></div>` +
+        `<div><dt>Last status</dt><dd>${p?.lastStatus ?? '-'}</dd></div>` +
+      `</dl>` +
+      `<p class="subtle sm">A failed delivery hands the row back rather than dropping it, so the
+        next reconnect retries immediately instead of waiting out a lease.</p>`;
   }
+
+  const foot = document.getElementById('detailFoot');
+  foot.innerHTML = row.pendingId
+    ? `<button type="button" class="btn btn--primary" id="deliverNow" data-replay="${row.pendingId}">
+         ${row.kind === 'held' ? 'Deliver now' : 'Replay'} <kbd>r</kbd>
+       </button>
+       <p class="detail__hint">Sends the stored bytes to
+         <code translate="no">localhost</code> through the tunnel. The stored copy is kept.</p>`
+    : `<p class="detail__hint">This one went straight through, so there is no stored copy to re-send.</p>`;
 }
 
-// Delegated so buttons rendered on every refresh keep working.
-document.getElementById('mailbox').addEventListener('click', async (e) => {
+detailEl.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
+  tab = t.id.replace('tab-', '');
+  renderDetail();
+}));
+document.getElementById('detailClose').addEventListener('click', closeDetail);
+
+detailEl.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-replay]');
-  if (!btn) return;
-  const original = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Replaying…';
+  if (btn) replay(btn.dataset.replay, btn);
+});
+
+async function replay(id, btn) {
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
   try {
-    const res = await postJSON(`/api/replay/${btn.dataset.replay}`);
-    toast(`Replayed — the app answered ${res?.status ?? 'OK'}.`, 'ok');
-    loadMailbox();
+    const res = await postJSON(`/api/replay/${id}`);
+    toast(`Delivered - your app answered ${res?.status ?? 'OK'}.`, 'ok');
+    await refresh();
   } catch (err) {
     toast(err.message, 'error');
   } finally {
-    btn.disabled = false;
-    btn.textContent = original;
+    if (btn) { btn.disabled = false; btn.innerHTML = original; }
+  }
+}
+
+/* ── rail ────────────────────────────────────────────────────────────────── */
+
+function renderTunnels(list) {
+  const el = document.getElementById('tunnels');
+  if (!list.length) {
+    renderState(el, { title: 'No tunnels open', hint: 'Start one with doorbell 3000.' });
+    return;
+  }
+  el.innerHTML = list.map((t) => {
+    const held = Number(counts[t.id] || 0);
+    return `<article class="tunnel">
+      <a class="tunnel__url" href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.id)}</a>
+      <p class="tunnel__meta tnum">→ localhost:${t.localPort} · ${num(t.requests)} requests</p>
+      ${held ? `<p class="tunnel__held">${num(held)} held</p>` : ''}
+    </article>`;
+  }).join('');
+}
+
+function renderFilters(list) {
+  const heldTotal = Object.values(counts).reduce((a, b) => a + Number(b || 0), 0);
+  const failed = [...seen.values()].filter((r) => Number(r.status) >= 400 || r.error).length;
+  const chip = (label, active, data) =>
+    `<button type="button" class="chipf${active ? ' is-active' : ''}" ${data}>${label}</button>`;
+
+  let html = chip('All', filter.kind === 'all' && !filter.tunnel, `data-kind="all"`);
+  html += chip(`Held ${heldTotal ? num(heldTotal) : ''}`.trim(), filter.kind === 'held', `data-kind="held"`);
+  html += chip(`Failed ${failed ? num(failed) : ''}`.trim(), filter.kind === 'failed', `data-kind="failed"`);
+  for (const t of list) {
+    html += chip(esc(t.id), filter.tunnel === t.id, `data-tunnel="${esc(t.id)}"`);
+  }
+  document.getElementById('filters').innerHTML = html;
+}
+
+document.getElementById('filters').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  if (btn.dataset.kind) {
+    filter.kind = btn.dataset.kind;
+    if (btn.dataset.kind === 'all') filter.tunnel = null;
+  } else if (btn.dataset.tunnel) {
+    filter.tunnel = filter.tunnel === btn.dataset.tunnel ? null : btn.dataset.tunnel;
+  }
+  renderAll();
+});
+
+/* ── timeline tape ───────────────────────────────────────────────────────── */
+
+// The drawing itself lives in app.js, because the overview page draws the same
+// object from the same data. Only the window differs.
+function renderTape() {
+  paintTape(document.getElementById('tapeTrack'), pending, [...seen.values()], TAPE_MIN);
+}
+
+/* ── header chips ────────────────────────────────────────────────────────── */
+
+function renderChips(list) {
+  const heldTotal = Object.values(counts).reduce((a, b) => a + Number(b || 0), 0);
+  document.getElementById('chipTunnels').textContent =
+    `${num(list.length)} tunnel${list.length === 1 ? '' : 's'}`;
+  const held = document.getElementById('chipHeld');
+  held.textContent = `${num(heldTotal)} held`;
+  held.hidden = heldTotal === 0;
+}
+
+/* ── keyboard ────────────────────────────────────────────────────────────── */
+
+/* An operator watching a drain has one hand on the keyboard. Rows are focusable
+   buttons, so "selection" is just focus: the shortcuts and the Tab key agree
+   with each other by construction, with nothing to keep in sync. */
+
+function moveFocus(step) {
+  const rows = [...rowsEl.querySelectorAll('tr')];
+  if (!rows.length) return;
+  const at = rows.indexOf(document.activeElement.closest?.('tr'));
+  const next = at < 0 ? (step > 0 ? 0 : rows.length - 1)
+                      : Math.min(rows.length - 1, Math.max(0, at + step));
+  rows[next].focus();
+  rows[next].scrollIntoView({ block: 'nearest' });
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t instanceof HTMLElement &&
+      (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+
+  switch (e.key) {
+    case 'j': e.preventDefault(); moveFocus(1); break;
+    case 'k': e.preventDefault(); moveFocus(-1); break;
+    case 'Escape': if (!detailEl.hidden) { e.preventDefault(); closeDetail(); } break;
+    case 'r': {
+      const tr = document.activeElement.closest?.('tr');
+      const row = tr ? rowByKey(tr.dataset.key) : rowByKey(selectedKey);
+      if (!row) break;
+      e.preventDefault();
+      if (!row.pendingId) {
+        toast('Only requests that were held can be re-sent - this one went straight through.', 'info');
+        break;
+      }
+      replay(row.pendingId, null);
+      break;
+    }
+    default: break;
   }
 });
 
+/* ── polling ─────────────────────────────────────────────────────────────── */
+
+let refreshTimer = null;
+
+function renderAll(list = lastTunnels) {
+  renderChips(list);
+  renderTunnels(list);
+  renderFilters(list);
+  renderTape();
+  renderFeed();
+  renderDetail();
+}
+
+let lastTunnels = [];
+
+async function refresh() {
+  try {
+    const [tunnels, c, window] = await Promise.all([
+      getJSON('/api/tunnels'),
+      getJSON('/api/mailbox'),
+      getJSON(`/api/mailbox?since=${WINDOW_MIN}`),
+    ]);
+    lastTunnels = tunnels || [];
+    counts = c || {};
+    pending = window || [];
+    renderAll(lastTunnels);
+  } catch (err) {
+    renderState(document.getElementById('tunnels'),
+      { title: 'Could not reach the gateway', hint: err.message, tone: 'error' });
+  }
+}
+
+// A burst of traffic produces a burst of SSE events. Without this, a load test
+// against the tunnel would aim the same burst at our own API.
+function scheduleRefresh() {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(() => { refreshTimer = null; refresh(); }, 400);
+}
+
 /* ── live stream ─────────────────────────────────────────────────────────── */
+
+function remember(rec) {
+  if (seen.has(rec.id)) return;
+  seen.set(rec.id, rec);
+  while (seen.size > MAX_ROWS) seen.delete(seen.keys().next().value);
+}
 
 function connect() {
   const dot = document.getElementById('dot');
   const conn = document.getElementById('conn');
+  const connSr = document.getElementById('connSr');
+  const setStatus = (text) => { conn.textContent = text; connSr.textContent = text; };
   const es = new EventSource('/api/stream');
 
-  const connSr = document.getElementById('connSr');
-  // The visible label is hidden on narrow screens, so the status has to be
-  // announced from a copy that is always in the accessibility tree.
-  const setStatus = (text) => { conn.textContent = text; connSr.textContent = text; };
-
-  es.addEventListener('open', () => {
-    dot.className = 'dot dot--live';
-    setStatus('Live');
-  });
-  es.addEventListener('error', () => {
-    dot.className = 'dot dot--down';
-    setStatus('Reconnecting…');
-  });
+  es.addEventListener('open', () => { dot.className = 'dot dot--live'; setStatus('Live'); });
+  es.addEventListener('error', () => { dot.className = 'dot dot--down'; setStatus('Reconnecting…'); });
   es.addEventListener('hello', (e) => {
     const data = JSON.parse(e.data);
-    document.getElementById('mode').textContent = `· ${data.mode}`;
-    const recent = data.recent || [];
-    if (!recent.length) showFeedState('empty');
-    [...recent].reverse().forEach((r) => addRow(r, false));
+    document.getElementById('chipMode').textContent = data.mode;
+    document.getElementById('host').textContent = location.host;
+    [...(data.recent || [])].reverse().forEach(remember);
+    renderAll(lastTunnels);
   });
   es.addEventListener('request', (e) => {
-    addRow(JSON.parse(e.data), true);
-    refresh();
+    remember(JSON.parse(e.data));
+    renderTape();
+    renderFeed();
+    scheduleRefresh();
   });
 }
-
-function refresh() { loadTunnels(); loadMailbox(); }
 
 connect();
 refresh();
 setInterval(refresh, 5000);
+
+/* ── pane layout ─────────────────────────────────────────────────────────── */
+
+/* Operators do not agree on where the inspector belongs: reading left-to-right
+   some want the detail last, others want it beside the list they are scanning.
+   Rather than pick, the order is theirs and it is remembered.
+   Order is expressed as CSS `order` on flex children, so nothing is detached
+   and re-inserted - the panes keep their scroll position, their focus and their
+   live SSE-driven contents while they move. */
+
+const LAYOUT_KEY = 'doorbell-panes';
+const PANES = ['rail', 'feed', 'detail'];
+const NARROW = matchMedia('(max-width: 860px)');
+
+// Two sensible defaults, not one. Side by side, the rail reads first like a
+// table of contents. Stacked on a phone, putting "no tunnels open" above the
+// requests would bury the only thing worth scrolling to.
+const defaultOrder = () => (NARROW.matches ? ['feed', 'rail', 'detail'] : ['rail', 'feed', 'detail']);
+
+function storedOrder() {
+  try {
+    const raw = (localStorage.getItem(LAYOUT_KEY) || '').split(',').filter(Boolean);
+    // Ignore anything that is not exactly the known panes: a stale or hand-edited
+    // value should fall back to the default, never hide a pane.
+    const ok = raw.length === PANES.length && PANES.every((p) => raw.includes(p));
+    return ok ? raw : null;
+  } catch { return null; }
+}
+
+let order = storedOrder();
+
+function applyOrder() {
+  const list = order || defaultOrder();
+  list.forEach((name, i) => {
+    const el = document.querySelector(`[data-pane="${name}"]`);
+    if (el) el.style.order = String(i);
+  });
+  document.getElementById('resetLayout').hidden = !order;
+}
+
+function setOrder(list, { save = true } = {}) {
+  order = list;
+  if (save) { try { localStorage.setItem(LAYOUT_KEY, list.join(',')); } catch { /* private mode */ } }
+  applyOrder();
+}
+
+function move(name, delta) {
+  const list = [...(order || defaultOrder())];
+  const from = list.indexOf(name);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= list.length) return;
+  list.splice(to, 0, list.splice(from, 1)[0]);
+  setOrder(list);
+  const where = list.indexOf(name) + 1;
+  toast(`${name} pane moved to position ${where} of ${list.length}.`, 'info');
+}
+
+/* Keyboard: the grip is a real button, so arrows on it reorder. */
+document.addEventListener('keydown', (e) => {
+  const grip = e.target.closest?.('[data-grip]');
+  if (!grip) return;
+  if (e.key === 'ArrowLeft') { e.preventDefault(); move(grip.dataset.grip, -1); grip.focus(); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); move(grip.dataset.grip, 1); grip.focus(); }
+});
+
+/* Pointer: drag a grip onto another pane to drop before or after it. */
+let dragging = null;
+
+document.addEventListener('dragstart', (e) => {
+  const grip = e.target.closest?.('[data-grip]');
+  if (!grip) return;
+  dragging = grip.dataset.grip;
+  e.dataTransfer.effectAllowed = 'move';
+  // Firefox refuses to start a drag without payload, even one nobody reads.
+  e.dataTransfer.setData('text/plain', dragging);
+  document.querySelector(`[data-pane="${dragging}"]`)?.classList.add('pane--dragging');
+});
+
+const clearMarks = () => document.querySelectorAll('[data-pane]').forEach((p) =>
+  p.classList.remove('pane--dropbefore', 'pane--dropafter'));
+
+document.addEventListener('dragover', (e) => {
+  if (!dragging) return;
+  const over = e.target.closest?.('[data-pane]');
+  if (!over || over.dataset.pane === dragging) { clearMarks(); return; }
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const box = over.getBoundingClientRect();
+  const before = e.clientX < box.left + box.width / 2;
+  clearMarks();
+  over.classList.add(before ? 'pane--dropbefore' : 'pane--dropafter');
+});
+
+document.addEventListener('drop', (e) => {
+  if (!dragging) return;
+  const over = e.target.closest?.('[data-pane]');
+  e.preventDefault();
+  if (over && over.dataset.pane !== dragging) {
+    const box = over.getBoundingClientRect();
+    const before = e.clientX < box.left + box.width / 2;
+    const list = [...(order || defaultOrder())].filter((n) => n !== dragging);
+    const at = list.indexOf(over.dataset.pane);
+    list.splice(before ? at : at + 1, 0, dragging);
+    setOrder(list);
+  }
+  clearMarks();
+  document.querySelector(`[data-pane="${dragging}"]`)?.classList.remove('pane--dragging');
+  dragging = null;
+});
+
+document.addEventListener('dragend', () => {
+  clearMarks();
+  if (dragging) document.querySelector(`[data-pane="${dragging}"]`)?.classList.remove('pane--dragging');
+  dragging = null;
+});
+
+document.getElementById('resetLayout').addEventListener('click', () => {
+  try { localStorage.removeItem(LAYOUT_KEY); } catch { /* private mode */ }
+  order = null;
+  applyOrder();
+  toast('Layout reset to the default.', 'ok');
+});
+
+// With no stored choice the default follows the breakpoint, so re-apply when it
+// crosses. A stored choice is the operator's and is left alone.
+NARROW.addEventListener('change', () => { if (!order) applyOrder(); });
+
+applyOrder();
+
+initTheme(document.getElementById('themeToggle'));
+
+/* The clock is not decoration. Every other time on this page is relative -
+   "held 4m", "2s ago" - and a wall clock is what lets an operator tie those to
+   the log they are reading in another window. */
+const clockEl = document.getElementById('clock');
+const tick = () => { clockEl.textContent = new Date().toLocaleTimeString(undefined, { hour12: false }); };
+tick();
+setInterval(tick, 1000);
 </script>

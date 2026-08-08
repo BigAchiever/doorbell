@@ -70,7 +70,7 @@ type Welcome struct {
 
 	// ID is the tunnel's assigned name, e.g. "quiet-frog".
 	ID string `json:"id,omitempty"`
-	// URL is what the developer pastes into Stripe. Its shape depends on the
+	// URL is what the developer registers with the sender. Its shape depends on the
 	// gateway's mode: path-based in zeroconfig, subdomain-based with a domain.
 	URL string `json:"url,omitempty"`
 	// Mode is "zeroconfig" or "wildcard", so the CLI can warn about the

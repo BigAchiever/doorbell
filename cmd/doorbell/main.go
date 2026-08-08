@@ -19,6 +19,8 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -178,10 +180,145 @@ func forward(stream net.Conn, target string) {
 	}
 	defer local.Close()
 
+	// Observe, never intercept. Peek returns bytes without consuming them, so
+	// both directions still stream byte-for-byte and this stays true for
+	// upgrades and chunked bodies. Only requests the gateway marks as held are
+	// reported; ordinary traffic passes in silence.
+	reqSide := bufio.NewReader(stream)
+	resSide := bufio.NewReader(local)
+	held := peekHeld(reqSide)
+
 	done := make(chan struct{}, 2)
-	go func() { _, _ = io.Copy(local, stream); done <- struct{}{} }()
-	go func() { _, _ = io.Copy(stream, local); done <- struct{}{} }()
+	go func() { _, _ = io.Copy(local, reqSide); done <- struct{}{} }()
+	go func() {
+		if held != nil {
+			held.report(peekStatus(resSide))
+		}
+		_, _ = io.Copy(stream, resSide)
+		done <- struct{}{}
+	}()
 	<-done
+}
+
+/* ── reporting a drain ───────────────────────────────────────────────────── */
+
+// The moment a tunnel reconnects, everything held while it was away arrives at
+// once. Without this the most persuasive thing the product does happens in
+// total silence.
+
+var (
+	drainMu   sync.Mutex
+	drainOnce sync.Once
+)
+
+type heldReq struct {
+	method, path string
+	waited       time.Duration
+}
+
+// peekHeld returns details of a held request, or nil for ordinary traffic.
+//
+// Peek(1) blocks only until the first byte, then reports whatever the same read
+// happened to buffer — in practice the whole request head. Asking for a fixed
+// size instead would block waiting for bytes a small request never sends.
+func peekHeld(br *bufio.Reader) *heldReq {
+	if _, err := br.Peek(1); err != nil {
+		return nil
+	}
+	head, err := br.Peek(br.Buffered())
+	if err != nil && len(head) == 0 {
+		return nil
+	}
+
+	lines := strings.Split(string(head), "\r\n")
+	if len(lines) == 0 {
+		return nil
+	}
+	parts := strings.Fields(lines[0])
+	if len(parts) < 2 {
+		return nil
+	}
+
+	out := &heldReq{method: parts[0], path: parts[1]}
+	var replayed bool
+	for _, ln := range lines[1:] {
+		k, v, ok := strings.Cut(ln, ":")
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(k)) {
+		case "x-doorbell-replay":
+			replayed = strings.TrimSpace(v) == "buffered"
+		case "x-doorbell-original-time":
+			if t, err := time.Parse(time.RFC3339, strings.TrimSpace(v)); err == nil {
+				out.waited = time.Since(t)
+			}
+		}
+	}
+	if !replayed {
+		return nil
+	}
+	return out
+}
+
+// peekStatus reads the response status code without consuming it. Zero if the
+// first line is not a status line we recognise.
+func peekStatus(br *bufio.Reader) int {
+	if _, err := br.Peek(1); err != nil {
+		return 0
+	}
+	head, err := br.Peek(br.Buffered())
+	if err != nil && len(head) == 0 {
+		return 0
+	}
+	parts := strings.Fields(string(head))
+	if len(parts) < 2 || !strings.HasPrefix(parts[0], "HTTP/") {
+		return 0
+	}
+	code, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0
+	}
+	return code
+}
+
+func (h *heldReq) report(status int) {
+	drainMu.Lock()
+	defer drainMu.Unlock()
+
+	drainOnce.Do(func() {
+		fmt.Printf("\n  \033[33m▲ requests held while you were away are arriving now\033[0m\n")
+	})
+
+	mark, colour := "\033[32m✓\033[0m", "\033[32m"
+	if status == 0 || status >= 400 {
+		mark, colour = "\033[31m✕\033[0m", "\033[31m"
+	}
+	code := "—"
+	if status > 0 {
+		code = strconv.Itoa(status)
+	}
+	fmt.Printf("  %s %s %-6s %-34s %s%s\033[0m  \033[2mheld %s\033[0m\n",
+		mark, time.Now().Format("15:04:05"), h.method, truncate(h.path, 34),
+		colour, code, humanWait(h.waited))
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-1] + "…"
+}
+
+func humanWait(d time.Duration) string {
+	secs := int(d.Seconds())
+	if secs < 1 {
+		return "<1s"
+	}
+	if secs < 60 {
+		return fmt.Sprintf("%ds", secs)
+	}
+	return fmt.Sprintf("%dm %02ds", secs/60, secs%60)
 }
 
 type bufferedConn struct {

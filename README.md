@@ -2,7 +2,7 @@
 
 **A tunnel that doesn't lose your webhooks — and a tunnel network you own, deployed from one YAML file in about 90 seconds.**
 
-Every tunnel ever built drops requests on the floor when your laptop isn't there. You close the lid, Stripe fires a webhook, it gets a 502, and you go re-send it by hand from their dashboard.
+Every tunnel ever built drops requests on the floor when your laptop isn't there. You close the lid; the payment provider, the git host, the CI job reporting back all get a 502 — and you go re-send each one by hand from whatever console it came from, assuming that sender kept it at all.
 
 ```
   doorbell 3000            →  https://…/t/shop/
@@ -26,7 +26,7 @@ Your laptop stays where it is. The tunnel network runs in *your* Zerops account,
 
 Your app runs on `localhost:3000`. Nothing on the internet can reach it. Three times a week you need it to:
 
-- **Test a webhook.** Stripe or Razorpay has to POST a payment callback somewhere. It cannot post to `localhost`.
+- **Receive a callback.** A payment provider, a GitHub push, a CI job reporting a build, an OAuth redirect, any vendor whose integration you are building — all of them have to POST somewhere, and none of them can POST to `localhost`.
 - **Check it on a real phone.** Not Chrome's fake device mode — an actual device on actual mobile Safari.
 - **Show a client, right now**, without a deploy.
 
@@ -55,7 +55,9 @@ This is the part that is structural, not marketing. A tunnel needs four things:
 | Wildcard TLS | ✅ ACME DNS-01 | ❌ | ❌ | partial | ❌ |
 | Private network between gateway, DB and cache | ✅ VXLAN | ❌ | ❌ | ❌ | ❌ |
 
-A tunnel is one long-lived TCP socket held open for hours. A serverless function sleeps between requests; when it sleeps, the socket dies and the tunnel dies with it. This is not "harder on Vercel" — it is **not expressible** on any HTTP-only platform.
+A tunnel is one long-lived TCP socket held open for hours. A serverless function runs once per request and then stops, so nothing is left holding the socket. This is not "harder on Vercel" — it is **not expressible** on any HTTP-only platform.
+
+The sharpest way to check that claim: Vercel rejects **WebSocket** handshakes regardless of configuration, and Fluid Compute does not change the connection model. A raw TCP listener is considerably further out of reach than a WebSocket. Half of Doorbell — the mailbox, an HTTP endpoint writing to Postgres — would run there quite happily. The tunnel would not, and the tunnel is the product.
 
 **Honest caveat:** this would run on Fly.io or a $5 VPS. What neither gives you is the whole network — gateway, Postgres, Valkey, dashboard, private networking, managed TLS — standing up from a single pasted file in ~90 seconds. That difference *is* the demo.
 
@@ -89,17 +91,25 @@ A tunnel is one long-lived TCP socket held open for hours. A serverless function
 
 Doorbell ships both. You pick when you deploy, and the dashboard tells you what you are giving up.
 
-| | **Zero-config** | **Your own domain** |
+| | **Zero-config** — running live | **Your own domain** — implemented, not demonstrated |
 |---|---|---|
 | URL | `gw-abc.zerops.app/t/xyz/` | `xyz.your-domain.com` |
 | Setup | none | DNS record + ACME DNS-01 |
-| HTTPS | ✅ Zerops-managed cert | ✅ Let's Encrypt wildcard |
-| Webhook testing | ✅ perfect | ✅ perfect |
-| Full web apps | ⚠️ absolute paths need rewriting | ✅ perfect |
+| HTTPS | ✅ Zerops-managed cert | ◐ Let's Encrypt wildcard |
+| Webhook testing | ✅ perfect | ◐ by design |
+| Full web apps | ⚠️ absolute paths need rewriting | ◐ by design |
+
+✅ verified on the live gateway · ◐ implemented and unit-tested, never demonstrated end to end ·
+⚠️ works with a documented caveat
+
+The right-hand column is honest about itself: host routing is implemented and covered by seven
+unit cases, but it has never run against a real domain. See
+[Known limitation](#known-limitation-wildcard-mode-is-routed-but-not-certificated). Zero-config is
+the default for exactly that reason — nothing on the critical path depends on it.
 
 Zero-config works the instant the import finishes — no domain, no DNS, no waiting. Path-based routing does mean a page requesting `/css/app.css` needs it rewritten to `/t/xyz/css/app.css`; Doorbell handles the common cases (`Location` headers, `<base href>`, cookie paths) but it is not perfect for every app.
 
-For **webhook testing — the single most common reason anyone opens a tunnel — none of that matters.** Stripe POSTs to one URL and reads the response. That is why zero-config is the default and the domain is an upgrade, not a prerequisite.
+For **receiving callbacks — the single most common reason anyone opens a tunnel — none of that matters.** A sender POSTs to one URL and reads the response. That is why zero-config is the default and the domain is an upgrade, not a prerequisite.
 
 ---
 

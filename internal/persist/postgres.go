@@ -305,6 +305,55 @@ func (d *DB) Mailbox(ctx context.Context, tunnelID string, limit int) ([]Pending
 }
 
 // PendingCount reports how many requests are waiting, across all tunnels.
+// Since returns every stored request that arrived after t, across all tunnels,
+// oldest first.
+//
+// The dashboard's timeline needs to shade the stretches when a tunnel was
+// offline, and nothing records connects and disconnects directly. It does not
+// have to: a request is only ever stored here because there was no tunnel to
+// give it to, so each row's received_at → delivered_at span *is* a stretch of
+// downtime, and a row still undelivered means the tunnel is down right now.
+// Reconstructing the gaps from the mailbox costs no extra bookkeeping and
+// cannot drift out of step with what was actually held.
+//
+// Bodies are excluded. The timeline needs times, tunnels and sizes, and a
+// window busy enough to be worth drawing is exactly the window where shipping
+// every body would be megabytes.
+func (d *DB) Since(ctx context.Context, t time.Time, limit int) ([]PendingRequest, error) {
+	if limit <= 0 || limit > 2000 {
+		limit = 500
+	}
+	// Its own scan rather than scanPending: that one derives BodySize from the
+	// body it just read, which is exactly the column being skipped here.
+	// octet_length asks Postgres for the size instead of shipping the bytes.
+	// Headers are kept — they are a few hundred bytes and the inspector shows
+	// them for a held request, which has no response to show instead.
+	const q = `SELECT id, tunnel_id, received_at, method, path, query, headers,
+	                  octet_length(body), delivered_at, last_status
+	           FROM pending WHERE received_at >= $1 ORDER BY received_at ASC LIMIT $2`
+
+	rows, err := d.pool.Query(ctx, q, t, limit)
+	if err != nil {
+		return nil, fmt.Errorf("persist: query since: %w", err)
+	}
+	defer rows.Close()
+
+	var out []PendingRequest
+	for rows.Next() {
+		var p PendingRequest
+		var head []byte
+		if err := rows.Scan(&p.ID, &p.TunnelID, &p.ReceivedAt, &p.Method, &p.Path,
+			&p.Query, &head, &p.BodySize, &p.DeliveredAt, &p.LastStatus); err != nil {
+			return nil, fmt.Errorf("persist: scan since: %w", err)
+		}
+		if err := json.Unmarshal(head, &p.Headers); err != nil {
+			p.Headers = map[string]string{}
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 func (d *DB) PendingCount(ctx context.Context) (map[string]int, error) {
 	const q = `SELECT tunnel_id, count(*) FROM pending
 	           WHERE delivered_at IS NULL GROUP BY tunnel_id`

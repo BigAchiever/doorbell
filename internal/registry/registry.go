@@ -130,7 +130,7 @@ func (m *Memory) List() []*Tunnel {
 }
 
 // Readable names beat random hex here. The tunnel ID ends up in a URL the
-// developer reads aloud, types into a Stripe dashboard, and sends to a
+// developer reads aloud, types into a vendor's webhook console, and sends to a
 // colleague — "quiet-frog" survives that trip and "a3f21c" does not.
 var (
 	adjectives = []string{
