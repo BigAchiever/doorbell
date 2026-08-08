@@ -475,7 +475,7 @@ func (g *gateway) requireOperator(next http.Handler) http.Handler {
 				Value:    q,
 				Path:     "/",
 				HttpOnly: true,
-				Secure:   schemeOf(r) == "https",
+				Secure:   g.servedOverTLS(r),
 				SameSite: http.SameSiteLaxMode,
 				MaxAge:   7 * 24 * 3600,
 			})
@@ -495,6 +495,24 @@ func (g *gateway) requireOperator(next http.Handler) http.Handler {
 		}
 		g.denyOperator(w, r)
 	})
+}
+
+// servedOverTLS reports whether this gateway is actually reached over HTTPS.
+//
+// schemeOf() is not usable here. Zerops terminates TLS at the L7 balancer and
+// forwards to the app in plaintext, so it sets X-Forwarded-Proto: http — the
+// scheme of the INTERNAL hop, not the one the browser used. Trusting it left
+// the operator cookie without a Secure flag on a site served over HTTPS,
+// verified against the live deployment.
+//
+// DOORBELL_PUBLIC_BASE is the operator's own statement of the externally
+// visible origin, so it is the honest source. The request scheme is only a
+// fallback for local development, where the base is unset.
+func (g *gateway) servedOverTLS(r *http.Request) bool {
+	if g.cfg.publicBase != "" {
+		return strings.HasPrefix(g.cfg.publicBase, "https://")
+	}
+	return schemeOf(r) == "https"
 }
 
 // operatorToken pulls the credential from an Authorization header (for curl and
