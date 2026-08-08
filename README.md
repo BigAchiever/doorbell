@@ -192,13 +192,29 @@ Measured live against a real Zerops account on 7 Aug 2026, before a line of prod
 - Valkey closes connections idle for 300s and TCP keepalive does **not** reset that timer, so the pub/sub subscriber sends an application-level `PING` every 60s
 - The L7 balancer's `send_timeout` defaults to 2s, so the SSE stream emits a comment frame every second — measured 7 heartbeats in 8s through the real balancer
 
-## Known limitation: multi-container is proven, but not on Zerops yet
+## Multi-container: proven on Zerops
 
-Peer forwarding is verified end to end — two gateways sharing one Valkey, where the non-owning gateway logged `peer: forwarding peertest to 127.0.0.1:4001` and returned the real response body from the laptop.
+Two gateway services, `gw` and `gw2`, share one Valkey and one Postgres over the project's private network. A tunnel was opened against `gw` only:
 
-It is **not** yet demonstrated across two Zerops containers. `PUT /service-stack/{id}/autoscaling` accepts `customAutoscaling.horizontalAutoscalingNullable.minContainerCount = 2`, returns HTTP 200, runs an async process to `FINISHED` — and the setting does not persist: `customAutoscaling.horizontalAutoscaling` stays `null` and the effective config remains `min 1 / max 2`. `zcli` exposes no scale command. Horizontal scaling on this account appears to be load-driven only, with the floor pinned at one container.
+```
+gw   (holds the socket)      /t/crosstalk/direct     → 200, response from the laptop
+gw2  (never saw this tunnel) /t/crosstalk/via-peer   → 200, response from the laptop
 
-So: the code path is proven, the platform has not been made to exercise it. Stated plainly rather than implied to work.
+tunnels in gw's registry : 1
+tunnels in gw2's registry: 0
+```
+
+`gw2` has zero tunnels of its own, looked the owner up in Valkey, and forwarded across the VXLAN. That is the whole reason Valkey is in the stack, demonstrated on the real platform.
+
+One caveat worth stating: this is two *services*, not two containers of one service. `PUT /service-stack/{id}/autoscaling` accepts `minContainerCount: 2`, returns HTTP 200 and runs its async process to `FINISHED` — but the setting never persists (`customAutoscaling.horizontalAutoscaling` stays `null`, effective config remains `min 1 / max 2`), and `zcli` has no scale command. Horizontal scaling on this account appears to be load-driven with the floor pinned at one. The code path is identical either way.
+
+## Known limitation: wildcard mode is routed but not certificated
+
+Host-based routing is implemented and unit-tested across seven cases, including the ones that must *not* match (apex domain, multi-label subdomains, unrelated hosts).
+
+It cannot be demonstrated end to end without a real domain, and not for the reason you would expect: **Zerops' L7 balancer routes by Host before the request reaches the gateway.** A spoofed `Host:` header against a `*.zerops.app` subdomain is rejected by the balancer with its own `{"error":{"code":"notFound"}}` — the request never arrives. Exercising wildcard mode therefore requires a custom domain actually pointed at the service, plus an ACME DNS-01 wildcard certificate.
+
+So: routing verified, certificate issuance untested. Zero-config mode is the default precisely so none of this is on the critical path.
 
 ## AI disclosure
 
