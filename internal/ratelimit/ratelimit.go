@@ -13,6 +13,7 @@ package ratelimit
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -121,25 +122,38 @@ func (l *Limiter) StartSweeper(done <-chan struct{}, every, idle time.Duration) 
 	}()
 }
 
-// ClientIP extracts the caller's address, preferring what the platform's load
-// balancer reports.
+// ClientIP identifies the caller for rate-limiting purposes.
 //
-// On Zerops every request arrives from the L7 balancer, so RemoteAddr is the
-// balancer for all callers — keying on it would put the entire internet in one
-// bucket and throttle everyone at once. X-Real-Ip and X-Forwarded-For are set
-// by that balancer and are the only way to tell callers apart.
+// THE ENTRY IT PICKS MATTERS. X-Forwarded-For is a list the client starts and
+// each proxy appends to, so the LEFT-most entry is whatever the caller chose to
+// send. Keying on it let anyone rotate the header and get a fresh bucket per
+// request — measured at 599 of 600 requests slipping through a limiter that
+// allowed 203 when the value was fixed.
+//
+// The RIGHT-most entry is the one appended by the proxy closest to us, which
+// the caller cannot forge. On Zerops that is the project's L7 balancer, exactly
+// one hop away, so the last entry is the real peer.
+//
+// X-Real-Ip is only consulted when there is no X-Forwarded-For at all: nginx
+// overwrites it, but a deployment without that proxy in front would let a
+// client supply it freely.
+//
+// With no proxy headers we fall back to the transport peer, which is
+// unforgeable but collapses every caller behind a balancer into one bucket —
+// hence the preference order above.
 func ClientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-Ip"); ip != "" {
-		return ip
-	}
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		// Left-most entry is the original client; the rest are proxies.
-		for i := 0; i < len(fwd); i++ {
-			if fwd[i] == ',' {
-				return trimSpace(fwd[:i])
+		if last := strings.LastIndexByte(fwd, ','); last >= 0 {
+			if ip := trimSpace(fwd[last+1:]); ip != "" {
+				return ip
 			}
+		} else if ip := trimSpace(fwd); ip != "" {
+			// A single entry means one hop: the balancer recorded the peer.
+			return ip
 		}
-		return trimSpace(fwd)
+	}
+	if ip := trimSpace(r.Header.Get("X-Real-Ip")); ip != "" {
+		return ip
 	}
 	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
 		return host

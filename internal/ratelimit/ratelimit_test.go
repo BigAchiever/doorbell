@@ -94,6 +94,29 @@ func TestSweepKeepsStillThrottledClients(t *testing.T) {
 	}
 }
 
+// TestSpoofedForwardedForCannotEscapeTheBucket is the regression guard for a
+// measured bypass: rotating X-Forwarded-For got 599 of 600 requests through a
+// limiter that allowed 203 with a fixed value.
+func TestSpoofedForwardedForCannotEscapeTheBucket(t *testing.T) {
+	l := New(10, 5)
+	now := time.Now()
+
+	allowed := 0
+	for i := 0; i < 50; i++ {
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "10.0.0.1:5000"
+		// Every request claims a different origin, but the trusted proxy's
+		// appended entry is always the same real peer.
+		r.Header.Set("X-Forwarded-For", "10.20.30."+string(rune('0'+i%10))+", 9.9.9.9")
+		if l.Allow(ClientIP(r), now) {
+			allowed++
+		}
+	}
+	if allowed != 5 {
+		t.Errorf("%d of 50 spoofed requests allowed, want exactly the burst of 5", allowed)
+	}
+}
+
 func TestClientIPPrefersBalancerHeaders(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -101,9 +124,12 @@ func TestClientIPPrefersBalancerHeaders(t *testing.T) {
 		remote  string
 		want    string
 	}{
-		{"X-Real-Ip wins", map[string]string{"X-Real-Ip": "9.9.9.9"}, "10.0.0.1:5000", "9.9.9.9"},
-		{"first X-Forwarded-For entry", map[string]string{"X-Forwarded-For": "9.9.9.9, 10.0.0.1"}, "10.0.0.1:5000", "9.9.9.9"},
-		{"trims whitespace", map[string]string{"X-Forwarded-For": "  9.9.9.9  , 10.0.0.1"}, "10.0.0.1:5000", "9.9.9.9"},
+		{"X-Real-Ip used when no XFF", map[string]string{"X-Real-Ip": "9.9.9.9"}, "10.0.0.1:5000", "9.9.9.9"},
+		// The RIGHT-most entry is the one the trusted proxy appended. Taking the
+		// left-most let a caller pick its own bucket by rotating the header.
+		{"last X-Forwarded-For entry wins", map[string]string{"X-Forwarded-For": "1.1.1.1, 9.9.9.9"}, "10.0.0.1:5000", "9.9.9.9"},
+		{"spoofed prefix is ignored", map[string]string{"X-Forwarded-For": "evil, spoof, 9.9.9.9"}, "10.0.0.1:5000", "9.9.9.9"},
+		{"single entry is the peer", map[string]string{"X-Forwarded-For": "  9.9.9.9  "}, "10.0.0.1:5000", "9.9.9.9"},
 		{"falls back to RemoteAddr", nil, "10.0.0.1:5000", "10.0.0.1"},
 	}
 	for _, tc := range tests {

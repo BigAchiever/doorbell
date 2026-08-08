@@ -143,10 +143,27 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 	client := sessionClient(session)
 	defer client.CloseIdleConnections()
 
+	delivered := 0
 	for _, p := range queued {
 		if session.IsClosed() {
-			log.Printf("mailbox: %s went away mid-drain, %d still held", id, len(queued))
+			// Report what is actually left, not the size of the batch we
+			// started with — the old message said "200 still held" after
+			// successfully delivering 199 of them.
+			log.Printf("mailbox: %s went away mid-drain, %d of %d still held", id, len(queued)-delivered, len(queued))
 			return
+		}
+
+		// Take the lease before sending. Without it, a second drain for the
+		// same tunnel reads these same rows and delivers every webhook twice.
+		claimCtx, cancelClaim := context.WithTimeout(context.Background(), 10*time.Second)
+		won, err := g.db.Claim(claimCtx, p.ID)
+		cancelClaim()
+		if err != nil {
+			log.Printf("mailbox: claim %d: %v", p.ID, err)
+			return
+		}
+		if !won {
+			continue // another drain owns this one
 		}
 		status, err := func() (int, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -154,11 +171,17 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 			return g.deliver(ctx, session, client, p, "buffered")
 		}()
 		if err != nil {
-			// Leave it undelivered so the next reconnect tries again. This is
-			// the whole promise of the feature — do not silently discard.
+			// Hand the lease back so the next reconnect retries immediately
+			// rather than waiting it out. Never discard: that is the promise.
+			relCtx, cancelRel := context.WithTimeout(context.Background(), 10*time.Second)
+			if rerr := g.db.Release(relCtx, p.ID); rerr != nil {
+				log.Printf("mailbox: release %d: %v", p.ID, rerr)
+			}
+			cancelRel()
 			log.Printf("mailbox: deliver %d to %s failed, still held: %v", p.ID, id, err)
 			return
 		}
+		delivered++
 		markCtx, cancelMark := context.WithTimeout(context.Background(), 10*time.Second)
 		err = g.db.MarkDelivered(markCtx, p.ID, status)
 		cancelMark()

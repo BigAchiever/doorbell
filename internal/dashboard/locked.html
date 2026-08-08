@@ -1,0 +1,30 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0c0f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfcfd" media="(prefers-color-scheme: light)">
+<title>Operator Token Required · Doorbell</title>
+<link rel="stylesheet" href="/assets/ds.css">
+
+<header class="app-header">
+  <p class="brand"><strong>Doorbell</strong></p>
+  <nav class="nav" aria-label="Primary"><a href="/">Overview</a></nav>
+</header>
+
+<main class="prose" id="main">
+  <h1>Operator Token Required</h1>
+  <p class="lede">The dashboard shows captured request and response bodies, so it
+     is not public.</p>
+
+  <h2>Open It From a Link</h2>
+  <p>Visit this once and the token is stored in a cookie for a week:</p>
+  <pre class="code" translate="no">/dashboard?token=&lt;your DOORBELL_ADMIN_TOKEN&gt;</pre>
+
+  <h2>Or Call the API Directly</h2>
+  <pre class="code" translate="no">curl -H "Authorization: Bearer $DOORBELL_ADMIN_TOKEN" \
+  https://your-gateway/api/requests</pre>
+
+  <p class="muted">The token is the same one your <code translate="no">doorbell</code>
+     CLI uses. Tunnels themselves keep working without it — only the operator
+     view is gated.</p>
+</main>

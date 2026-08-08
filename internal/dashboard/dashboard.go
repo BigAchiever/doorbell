@@ -26,6 +26,13 @@ import (
 //go:embed landing.html
 var Landing []byte
 
+// Locked is shown instead of the dashboard when no valid operator token is
+// presented. It explains how to authenticate rather than returning a bare 401,
+// because the person hitting it is nearly always the operator who forgot.
+//
+//go:embed locked.html
+var Locked []byte
+
 // HTML is the live request inspector, served at /dashboard.
 //
 //go:embed dashboard.html

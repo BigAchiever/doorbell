@@ -114,6 +114,12 @@ CREATE TABLE IF NOT EXISTS pending (
 -- tunnel, in arrival order.
 CREATE INDEX IF NOT EXISTS pending_undelivered_idx
   ON pending (tunnel_id, id) WHERE delivered_at IS NULL;
+
+-- claimed_at is a delivery lease. Two drains can overlap — a flaky client
+-- reconnecting twice spawns two — and without a lease both read the same
+-- undelivered rows and deliver every webhook twice. Claiming is atomic, and
+-- the lease expires so a crashed drain does not strand its rows forever.
+ALTER TABLE pending ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
 `
 	if _, err := d.pool.Exec(ctx, schema); err != nil {
 		return fmt.Errorf("persist: migrate: %w", err)
@@ -318,6 +324,48 @@ func (d *DB) PendingCount(ctx context.Context) (map[string]int, error) {
 		out[id] = n
 	}
 	return out, rows.Err()
+}
+
+// ClaimLease is how long a delivery may hold a row before another drain may
+// take it. Longer than the 30s per-delivery timeout, so a slow but live
+// delivery is never stolen from underneath itself.
+const ClaimLease = 2 * time.Minute
+
+// Claim takes exclusive ownership of a pending row for the duration of a
+// delivery attempt, reporting whether this caller won it.
+//
+// This is the fix for duplicate delivery. Read-then-deliver-then-mark left a
+// window in which a second drain saw the same rows as undelivered and sent
+// every one of them again. The UPDATE is atomic, so exactly one caller can
+// observe the transition — including across containers, which a process-local
+// mutex could not cover.
+func (d *DB) Claim(ctx context.Context, id int64) (bool, error) {
+	const q = `
+UPDATE pending SET claimed_at = now()
+WHERE id = $1
+  AND delivered_at IS NULL
+  AND (claimed_at IS NULL OR claimed_at < now() - $2::interval)
+RETURNING id`
+
+	var got int64
+	err := d.pool.QueryRow(ctx, q, id, ClaimLease.String()).Scan(&got)
+	if err != nil {
+		// No row means someone else holds the lease, or it is already
+		// delivered. Neither is an error worth propagating — the caller simply
+		// skips it.
+		return false, nil
+	}
+	return true, nil
+}
+
+// Release hands a claimed row back after a failed attempt, so the next
+// reconnect retries it immediately instead of waiting out the lease.
+func (d *DB) Release(ctx context.Context, id int64) error {
+	const q = `UPDATE pending SET claimed_at = NULL WHERE id = $1 AND delivered_at IS NULL`
+	if _, err := d.pool.Exec(ctx, q, id); err != nil {
+		return fmt.Errorf("persist: release claim: %w", err)
+	}
+	return nil
 }
 
 // MarkDelivered records a successful (or attempted) delivery.

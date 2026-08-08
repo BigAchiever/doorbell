@@ -20,6 +20,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -330,10 +331,31 @@ func (g *gateway) handleClient(conn net.Conn) {
 			tunnel.ProtocolVersion, hello.Version))
 		return
 	}
-	if g.cfg.adminToken != "" && hello.Token != g.cfg.adminToken {
+	if !g.tokenOK(hello.Token) {
 		log.Printf("control: %s rejected: bad token", remote)
 		g.refuse(conn, "invalid token")
 		return
+	}
+
+	// The durable name claim happens BEFORE the multiplexer is started.
+	//
+	// It used to run after, which meant the refusal path wrote a plain JSON
+	// line onto a socket yamux already owned — a keepalive frame could
+	// interleave and the client would report "malformed handshake" instead of
+	// the real reason — and it leaked the session, since refuse() only closes
+	// the connection.
+	if hello.Subdomain != "" && g.db != nil {
+		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := g.db.ClaimName(claimCtx, hello.Subdomain, hello.Token)
+		cancel()
+		if errors.Is(err, persist.ErrNameHeld) {
+			g.refuse(conn, fmt.Sprintf("the name %q is reserved by someone else", hello.Subdomain))
+			return
+		} else if err != nil {
+			// A database wobble should not stop a tunnel opening; the worst
+			// case is a name that is not durably reserved this session.
+			log.Printf("control: %s name claim degraded: %v", remote, err)
+		}
 	}
 
 	if err := conn.SetReadDeadline(time.Time{}); err != nil {
@@ -351,23 +373,6 @@ func (g *gateway) handleClient(conn net.Conn) {
 		log.Printf("control: %s yamux: %v", remote, err)
 		conn.Close()
 		return
-	}
-
-	// A requested name has to be checked against the durable reservation table
-	// before the in-memory registry, otherwise two containers could each hand
-	// out the same name to different people.
-	if hello.Subdomain != "" && g.db != nil {
-		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err := g.db.ClaimName(claimCtx, hello.Subdomain, hello.Token)
-		cancel()
-		if errors.Is(err, persist.ErrNameHeld) {
-			g.refuse(conn, fmt.Sprintf("the name %q is reserved by someone else", hello.Subdomain))
-			return
-		} else if err != nil {
-			// A database wobble should not stop a tunnel opening; the worst
-			// case is a name that is not durably reserved this session.
-			log.Printf("control: %s name claim degraded: %v", remote, err)
-		}
 	}
 
 	t, err := g.store.Add(hello.Subdomain, hello.LocalPort, session)
@@ -422,6 +427,105 @@ func (g *gateway) handleClient(conn net.Conn) {
 	log.Printf("tunnel CLOSE %s after %s, %d requests", t.ID, time.Since(t.CreatedAt).Truncate(time.Second), t.Requests())
 }
 
+// tokenOK reports whether a presented token matches the configured one.
+//
+// The comparison is constant-time. A plain == returns at the first differing
+// byte, which on an internet-reachable port leaks the token one byte at a time
+// to anyone willing to measure rejection latency.
+//
+// An empty configured token means this gateway is unauthenticated; loadConfig
+// already logs a loud warning about that.
+func (g *gateway) tokenOK(presented string) bool {
+	if g.cfg.adminToken == "" {
+		return true
+	}
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(g.cfg.adminToken)) == 1
+}
+
+// operatorCookie carries the dashboard session. HttpOnly because no script
+// needs to read it, and its only job is to ride along with same-origin fetches.
+const operatorCookie = "doorbell_operator"
+
+// requireOperator gates the dashboard and the operator API.
+//
+// These endpoints expose captured request and response bodies — whole webhook
+// payloads, whatever the tunnel proxied — and /api/replay re-fires a stored
+// request into the developer's app. All of it was reachable by anyone who knew
+// the hostname, while the control port that merely opens a tunnel demanded a
+// token. This closes that gap.
+//
+// The tunnel data path (/t/…), the landing page, /healthz and /assets stay
+// public: those are for the outside world by design.
+func (g *gateway) requireOperator(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if g.cfg.adminToken == "" {
+			next.ServeHTTP(w, r) // unauthenticated gateway; already warned at boot
+			return
+		}
+
+		// A ?token= query sets the cookie once, so the operator can open the
+		// dashboard from a link instead of hand-crafting a header.
+		if q := r.URL.Query().Get("token"); q != "" {
+			if !g.tokenOK(q) {
+				g.denyOperator(w, r)
+				return
+			}
+			http.SetCookie(w, &http.Cookie{
+				Name:     operatorCookie,
+				Value:    q,
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   schemeOf(r) == "https",
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   7 * 24 * 3600,
+			})
+			// Redirect so the token does not linger in the address bar, in
+			// history, or in any Referer this page later sends.
+			clean := *r.URL
+			q := clean.Query()
+			q.Del("token")
+			clean.RawQuery = q.Encode()
+			http.Redirect(w, r, clean.RequestURI(), http.StatusSeeOther)
+			return
+		}
+
+		if presented, ok := operatorToken(r); ok && g.tokenOK(presented) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		g.denyOperator(w, r)
+	})
+}
+
+// operatorToken pulls the credential from an Authorization header (for curl and
+// scripts) or the cookie (for the dashboard).
+func operatorToken(r *http.Request) (string, bool) {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		return strings.TrimPrefix(h, "Bearer "), true
+	}
+	if c, err := r.Cookie(operatorCookie); err == nil {
+		return c.Value, true
+	}
+	return "", false
+}
+
+func (g *gateway) denyOperator(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "operator token required — send Authorization: Bearer <DOORBELL_ADMIN_TOKEN>, or open /dashboard?token=<token> once to set a cookie",
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusUnauthorized)
+	if _, err := w.Write(dashboard.Locked); err != nil {
+		log.Printf("dashboard: write locked page: %v", err)
+	}
+}
+
 func (g *gateway) refuse(conn net.Conn, reason string) {
 	_ = tunnel.WriteJSONLine(conn, tunnel.Welcome{Version: tunnel.ProtocolVersion, Error: reason})
 	conn.Close()
@@ -455,17 +559,23 @@ func (g *gateway) httpServer() *http.Server {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, "ok")
 	})
+	// Public by design: the tunnel data path, the landing page, its assets, and
+	// a counters-only status endpoint that exposes no traffic.
 	mux.HandleFunc("/api/info", g.handleInfo)
-	mux.HandleFunc("/api/tunnels", g.handleListTunnels)
-	mux.HandleFunc("/api/requests", g.handleListRequests)
-	mux.HandleFunc("/api/stream", g.handleStream)
-	mux.HandleFunc("/api/history", g.handleHistory)
-	mux.HandleFunc("/api/mailbox", g.handleMailbox)
-	mux.HandleFunc("/api/replay/", g.handleReplay)
 	mux.HandleFunc("/t/", g.handleTunnelRequest)
 	mux.Handle("/assets/", dashboard.AssetHandler())
-	mux.HandleFunc("/dashboard", g.handleDashboard)
 	mux.HandleFunc("/", g.handleIndex)
+
+	// Operator surface. Everything here either reveals captured traffic or
+	// changes state, so it sits behind the admin token.
+	operator := func(h http.HandlerFunc) http.Handler { return g.requireOperator(h) }
+	mux.Handle("/api/tunnels", operator(g.handleListTunnels))
+	mux.Handle("/api/requests", operator(g.handleListRequests))
+	mux.Handle("/api/stream", operator(g.handleStream))
+	mux.Handle("/api/history", operator(g.handleHistory))
+	mux.Handle("/api/mailbox", operator(g.handleMailbox))
+	mux.Handle("/api/replay/", operator(g.handleReplay))
+	mux.Handle("/dashboard", operator(g.handleDashboard))
 
 	srv := &http.Server{
 		Addr:    ":" + g.cfg.httpPort,
