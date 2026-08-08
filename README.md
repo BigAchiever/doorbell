@@ -1,6 +1,17 @@
 # Doorbell
 
-**ngrok is a SaaS you rent. Doorbell is a tunnel network you own — deployed from one YAML file in about 90 seconds.**
+**A tunnel that doesn't lose your webhooks — and a tunnel network you own, deployed from one YAML file in about 90 seconds.**
+
+Every tunnel ever built drops requests on the floor when your laptop isn't there. You close the lid, Stripe fires a webhook, it gets a 502, and you go re-send it by hand from their dashboard.
+
+```
+  doorbell 3000            →  https://…/t/shop/
+  ^C                       →  laptop closed
+  3 webhooks arrive        →  202 Accepted, held    (not 502)
+  doorbell 3000            →  all 3 delivered, in order
+```
+
+ngrok, frp, bore, chisel and Cloudflare Tunnel all drop them. Doorbell holds them.
 
 ```bash
 doorbell 3000
@@ -91,6 +102,20 @@ Zero-config works the instant the import finishes — no domain, no DNS, no wait
 For **webhook testing — the single most common reason anyone opens a tunnel — none of that matters.** Stripe POSTs to one URL and reads the response. That is why zero-config is the default and the domain is an upgrade, not a prerequisite.
 
 ---
+
+## The mailbox
+
+A request for a **reserved** name with no live session is stored in Postgres and answered `202 Accepted`. On reconnect the queue drains into the tunnel in arrival order, and any stored request can be **replayed** on demand — a feature ngrok charges for.
+
+Details that are decisions, not accidents:
+
+- **Delivery is sequential.** Webhook streams are usually causal — created → updated → deleted — and replaying them concurrently can leave an app in a state the real sequence would never have produced.
+- **A failed delivery stays queued.** The next reconnect retries. Nothing is silently discarded; that is the entire promise.
+- **Only reserved names buffer.** Otherwise a stranger could allocate storage by guessing URLs.
+- **Each mailbox is capped at 200**, oldest dropped first — the newest events are the ones you were waiting for.
+- **Redacted headers are not replayed** as if they were real credentials; the app would reject them confusingly.
+
+**The honest trade:** answering `202` means Doorbell took responsibility for the request, not that your app processed it. For a *development* tunnel that is exactly the behaviour you want. For a production gateway it would be wrong, and Doorbell is not one.
 
 ## What Postgres and Valkey are actually for
 
