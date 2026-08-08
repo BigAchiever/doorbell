@@ -307,6 +307,10 @@ func (g *gateway) handleClient(conn net.Conn) {
 
 	log.Printf("tunnel OPEN  %s -> localhost:%d  (%s)  from %s", t.ID, hello.LocalPort, publicURL, remote)
 
+	// Anything that arrived while this tunnel was away goes in now, before the
+	// developer has a chance to wonder where their webhooks went.
+	go g.drainMailbox(t.ID, session)
+
 	// Block until the developer hits Ctrl-C or the network drops.
 	<-session.CloseChan()
 	g.store.Remove(t.ID)
@@ -360,6 +364,8 @@ func (g *gateway) serveHTTP() {
 	mux.HandleFunc("/api/requests", g.handleListRequests)
 	mux.HandleFunc("/api/stream", g.handleStream)
 	mux.HandleFunc("/api/history", g.handleHistory)
+	mux.HandleFunc("/api/mailbox", g.handleMailbox)
+	mux.HandleFunc("/api/replay/", g.handleReplay)
 	mux.HandleFunc("/t/", g.handleTunnelRequest)
 	mux.HandleFunc("/", g.handleIndex)
 
@@ -493,6 +499,12 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 			// Not ours. It may belong to a sibling container — this is the
 			// case that makes maxContainers > 1 work at all.
 			if g.forwardToPeer(w, r, id) {
+				return
+			}
+			// Nobody is home. If the owner reserved this name, hold the
+			// request instead of dropping it — this is the behaviour no
+			// other tunnel has.
+			if g.bufferRequest(w, r, id, rest) {
 				return
 			}
 			http.Error(w, fmt.Sprintf("doorbell: no live tunnel named %q", id), http.StatusNotFound)
