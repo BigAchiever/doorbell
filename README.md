@@ -1,31 +1,146 @@
-# Doorbell
+<h1 align="center">Doorbell</h1>
 
-A self-hosted tunnel that doesn't drop requests when your laptop is closed.
+<p align="center">
+  <strong>A self-hosted tunnel that doesn't drop requests when your laptop is closed.</strong><br>
+  Held, answered <code>202</code>, and delivered in order when you reconnect.
+</p>
+
+<p align="center">
+  <a href="#30-second-demo">Demo</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#why-zerops">Why Zerops</a> ·
+  <a href="#known-limitations">Limitations</a>
+</p>
+
+<p align="center">
+  <img src="docs/hero.png" alt="The Doorbell overview page, showing the live gateway panel with its timeline and counters" width="900">
+</p>
+
+<p align="center"><sub>The overview page draws the same timeline the dashboard does, from the same data - so the gateway is visibly running before you read a word.</sub></p>
+
+<!-- A recording of the sequence below is the one thing still missing here.
+     Record it, save it as docs/demo.gif, and add:
+     <p align="center"><img src="docs/demo.gif" alt="A webhook held while the tunnel is offline, then delivered on reconnect" width="900"></p> -->
+
+```
+ $ doorbell 3000
+   ◗ shop → https://gw.example.app/t/shop/   forwarding to localhost:3000
+
+ …laptop closes…
+
+ POST /t/shop/hooks/github   →  202 Accepted   held
+ POST /t/shop/hooks/github   →  202 Accepted   held
+ POST /t/shop/hooks/github   →  202 Accepted   held
+
+ $ doorbell 3000
+   ▲ requests held while you were away are arriving now
+   ✓ 18:41:02  POST /hooks/github   200   held 6m 12s
+   ✓ 18:41:02  POST /hooks/github   200   held 5m 48s
+   ✓ 18:41:02  POST /hooks/github   200   held 5m 31s
+```
+
+---
+
+## The problem
 
 Something on the internet needs to POST to code running on your machine — a
-payment provider, a git push, a CI job reporting back. Your machine has no
-public address, so you open a tunnel. Then you shut the lid and every one of
-those senders gets a 502.
+payment provider, a git push, a CI job reporting back, an OAuth callback. Your
+machine has no public address, so you open a tunnel.
 
-Doorbell answers `202 Accepted` instead, stores the request, and delivers it in
-order when you reconnect.
+Then you shut the lid. Every one of those senders gets a `502`, and you go and
+re-send each one by hand from whatever console it came from — assuming that
+sender kept it at all.
+
+**Every tunnel has this problem**, because none of them has anywhere to put a
+request. Doorbell does: it runs in your own infrastructure, with your own
+database in the path.
+
+## Why this is different
+
+| Every other tunnel | Doorbell |
+|---|---|
+| Laptop offline → the request is lost | Laptop offline → the request is stored |
+| Sender gets `502` and starts retrying | Sender gets `202 Accepted` and stops |
+| Reconnect starts from now | Reconnect drains the queue, oldest first |
+| Nothing to replay — it never arrived | Any stored request, re-sent byte for byte |
+| Someone else's servers see your payloads | Your project, your database, your network |
+
+ngrok's request inspector and replay are genuinely good, and free. They just
+cannot replay a request that never reached your machine.
+
+<p align="center">
+  <img src="docs/comparison.png" alt="A capability comparison between ngrok, Cloudflare Tunnel, localtunnel, frp/bore and Doorbell" width="900">
+</p>
+
+---
+
+## 30-second demo
+
+**1.** Point a tunnel at a local port:
+
+```bash
+doorbell 3000
+```
+
+**2.** Send something while it is connected — it arrives instantly:
+
+```bash
+curl -X POST https://<gateway>/t/shop/hook -d '{"n":1}'
+```
+
+**3.** Stop the CLI with `^C`, then send three more. Each is answered
+`202 Accepted` rather than `502`, and stored:
+
+```bash
+curl -i -X POST https://<gateway>/t/shop/hook -d '{"n":2}'
+```
+
+**4.** Start the CLI again. All three arrive, in the order they were sent:
 
 ```
-doorbell 3000        ->  https://<gateway>/t/shop/
-^C                   ->  laptop closed
-3 callbacks arrive   ->  202 Accepted, stored
-doorbell 3000        ->  all 3 delivered, in order
+▲ requests held while you were away are arriving now
+✓ 18:41:02  POST /hook   200   held 6m 12s
 ```
 
-The gateway runs in your own Zerops project. Nobody else's servers sit in the
-path of your traffic — which is also why it can hold your payloads at all.
+Open `https://<gateway>/dashboard?token=$DOORBELL_TOKEN` to watch the same thing
+on a timeline, with the offline stretch shaded and the held requests inside it.
+
+<p align="center">
+  <img src="docs/dashboard.png" alt="The Doorbell dashboard: a timeline showing the ci tunnel offline with three requests held, a live shop tunnel, and a request feed mixing held and delivered rows" width="900">
+</p>
+
+<p align="center"><sub>
+  <code>ci</code> is offline, so its three requests sit in the mailbox marked <b>HELD</b> with the
+  time they have been waiting. <code>shop</code> is connected, so its traffic goes straight through
+  and returns <code>200</code>. The shaded band on the timeline is the outage itself.
+</sub></p>
+
+---
+
+## What it guarantees
+
+| | |
+|---|---|
+| **Nothing is dropped** | Written to Postgres *before* the sender is answered |
+| **Answered immediately** | `202`, so the sender's retry policy never fires |
+| **Delivered in order** | The queue drains oldest first |
+| **Delivered once** | An atomic lease stops two reconnects double-delivering |
+| **Replayable** | Any stored request, re-sent byte for byte, on demand |
+| **Stable URL** | Reserved names survive restarts and redeploys |
+| **Secrets not stored** | Signing and auth headers are redacted before the database |
+| **Visible** | Live request and response bodies, and exactly when a tunnel was offline |
+
+Answering `202` means *"I have taken responsibility for this"*, not *"your app
+processed it"*. For a development tunnel that is the behaviour you want. For a
+production gateway it would be wrong, and this is not one.
 
 ---
 
 ## Quick start
 
-You need [Go 1.22+](https://go.dev/dl/) and a gateway to connect to. To use an
-existing one, skip to step 2.
+You need [Go 1.22+](https://go.dev/dl/) and a gateway. To use one that already
+exists, skip to step 2.
 
 **1. Deploy a gateway** (~90 seconds)
 
@@ -36,17 +151,14 @@ template** and paste it. When it finishes, open the raw TCP control port:
 > `gw` service → **Public access** → **Port routing** → public `7000` →
 > internal `7000` → protocol `tcp`
 
-That port is the whole reason this project targets Zerops; see
-[Why Zerops](#why-zerops).
-
 **2. Install the CLI**
 
 ```bash
-go install github.com/danishalisiddiqui/doorbell/cmd/doorbell@latest
+go install github.com/BigAchiever/Doorbell/cmd/doorbell@latest
 ```
 
-`go install` puts the binary in `$(go env GOPATH)/bin`. If `doorbell: command
-not found`, that directory is not on your `PATH`:
+If you get `doorbell: command not found`, `$(go env GOPATH)/bin` is not on your
+`PATH`:
 
 ```bash
 export PATH="$PATH:$(go env GOPATH)/bin"
@@ -67,77 +179,6 @@ survives restarts, so you only do it once.
 
 ---
 
-## Try the thing it exists for
-
-With a tunnel running, in a second terminal:
-
-```bash
-curl -X POST https://<gateway>/t/<name>/hook -d '{"n":1}'
-```
-
-Now stop the CLI with `^C` and send three more. Each returns `202 Accepted`
-rather than `502`. Start the CLI again and watch them arrive in order:
-
-```
-▲ requests held while you were away are arriving now
-✓ 18:41:02 POST   /hook   200  held 6m 12s
-```
-
-Open `https://<gateway>/dashboard?token=$DOORBELL_TOKEN` to see the same thing
-as a timeline, with the offline stretch shaded.
-
----
-
-## What it guarantees
-
-| | |
-|---|---|
-| Nothing is dropped | Written to Postgres before the sender is answered |
-| Answered immediately | `202`, so the sender's retry policy never fires |
-| Delivered in order | The queue drains oldest first |
-| Delivered once | An atomic lease stops two reconnects double-delivering |
-| Replayable | Any stored request, re-sent byte for byte, on demand |
-| Stable URL | Reserved names survive restarts and redeploys |
-| Secrets not stored | Signing and auth headers are redacted before the database |
-
-Answering `202` means *"I have taken responsibility for this"*, not *"your app
-processed it"*. For a development tunnel that is the behaviour you want. For a
-production gateway it would be wrong, and this is not one.
-
----
-
-## Running it locally
-
-Postgres and Valkey are both optional. Without them you get random tunnel names
-and no mailbox; the tunnel itself still works.
-
-```bash
-createdb doorbell
-```
-
-```bash
-DATABASE_URL="postgres://$(whoami)@localhost:5432/doorbell?sslmode=disable" \
-REDIS_URL="redis://localhost:6379" \
-go run ./cmd/gateway
-```
-
-Then in another terminal:
-
-```bash
-go run ./cmd/doorbell -gateway localhost 3000
-```
-
-## Tests
-
-```bash
-go test ./... -race
-```
-
-`make` runs the tests and builds both binaries. `make release` cross-compiles
-the CLI into `dist/`.
-
----
-
 ## Architecture
 
 ```
@@ -155,13 +196,23 @@ the CLI into `dist/`.
                               localhost:3000
 ```
 
-The CLI opens **one** outbound TCP connection and holds it. Nothing listens on
-your machine and nothing is opened on your router. Requests arriving at the
-gateway become [yamux](https://github.com/hashicorp/yamux) streams on that
-existing socket, and `httputil.ReverseProxy` writes into them — so chunked
-bodies, keep-alive and WebSocket upgrades work without hand-rolled framing.
+The CLI opens **one** outbound TCP connection and holds it open. Nothing
+listens on your machine and nothing is opened on your router — the gateway
+never needs to reach you, it just answers on a pipe you already dialled.
 
-### Where things live
+Requests arriving at the gateway become
+[yamux](https://github.com/hashicorp/yamux) streams on that existing socket, and
+`httputil.ReverseProxy` writes into them. Using the standard library's proxy
+rather than hand-rolled framing is what makes chunked bodies, keep-alive and
+WebSocket upgrades work for free.
+
+**Postgres** holds anything that must outlive a restart: name reservations and
+stored request bodies. **Valkey** holds anything that must be shared *right
+now*: which container owns which tunnel, and the event bus that lets a dashboard
+on one container show traffic proxied by another.
+
+<details>
+<summary><strong>Where each piece lives</strong></summary>
 
 | Path | What it does |
 |---|---|
@@ -183,52 +234,110 @@ bodies, keep-alive and WebSocket upgrades work without hand-rolled framing.
 | `internal/dashboard` | The embedded web interface |
 | `tools/verify` | Scripts used to check platform behaviour; not part of the build |
 
-**Postgres** holds anything that must outlive a restart: name reservations and
-stored request bodies. **Valkey** holds anything that must be shared *right
-now*: which container owns which tunnel, and the event bus that lets any
-dashboard show traffic from any container.
+</details>
 
 ---
 
 ## Why Zerops
 
-Six things have to be true at the same time, on one private network:
+Doorbell needs six infrastructure capabilities **at the same time, on one
+private network**:
 
-| Requirement | Why it is needed |
+> **A raw public TCP port** · **a process that never sleeps** · **Postgres** ·
+> **Valkey** · **private networking** · **managed TLS**
+
+Zerops provisions all six as one project from a single YAML template, in about
+ninety seconds. That is the whole reason this project targets it.
+
+| Requirement | Why Doorbell needs it |
 |---|---|
-| A raw public TCP port | The control channel the CLI dials. Not HTTP |
-| A process that never sleeps | A socket held for hours; if it sleeps, tunnels die |
-| Postgres, privately reachable | The mailbox — what makes `202` honest |
+| Raw public TCP port | The control channel the CLI dials. Not HTTP |
+| A process that never sleeps | A socket held for hours; if it sleeps, every tunnel dies |
+| Postgres, privately reachable | The mailbox — what makes `202` an honest answer |
 | Valkey | Routing and events across containers |
 | A private network | The database holds captured bodies; it must not face the internet |
 | Managed TLS and ingress | Senders will not deliver to a bad certificate |
 
-On Zerops that is one YAML file. Elsewhere it is a VPS plus your own firewall,
-a database to run and back up, a VPC to keep correct, and certificates to renew.
+<p align="center">
+  <img src="docs/zerops.png" alt="The six infrastructure requirements, what Zerops does about each, and what you would do instead" width="900">
+</p>
 
-Serverless is out entirely: a function stops when it answers, so nothing holds
-the socket. Vercel rejects even WebSocket handshakes regardless of
-configuration — a raw TCP listener is further out of reach still.
+<details>
+<summary><strong>Why not somewhere else?</strong></summary>
 
-**Honest caveat:** any one of these is easy somewhere. A $5 VPS gives you the
-raw port. What no other target gives you is all six at once from a single pasted
-file.
+Serverless is out entirely: a function stops when it answers, so nothing is left
+holding the socket. Vercel rejects even WebSocket handshakes regardless of
+configuration, and a raw TCP listener is further out of reach than that. Half of
+Doorbell — the mailbox, an HTTP endpoint writing to Postgres — would run almost
+anywhere. The tunnel would not, and the tunnel is the product.
+
+**Honest caveat:** any one of these six is easy somewhere. A $5 VPS gives you
+the raw port; a managed database gives you Postgres. What no other target gives
+you is all six at once, from a single pasted file — which is the difference
+between a demo and something you would leave running.
+
+</details>
 
 ---
 
-## Two modes
+## Local development
 
-| | Zero-config — **running live** | Custom domain — **implemented, not demonstrated** |
+Postgres and Valkey are both optional. Without them you get random tunnel names
+and no mailbox; the tunnel itself still works.
+
+```bash
+createdb doorbell
+```
+
+```bash
+DATABASE_URL="postgres://$(whoami)@localhost:5432/doorbell?sslmode=disable" \
+REDIS_URL="redis://localhost:6379" \
+go run ./cmd/gateway
+```
+
+Then, in another terminal:
+
+```bash
+go run ./cmd/doorbell -gateway localhost 3000
+```
+
+## Tests
+
+```bash
+go test ./... -race
+```
+
+50 tests across nine packages. The suites in `internal/persist` and
+`internal/routing` are integration tests: they need a real Postgres and Valkey
+and **skip** without them, so this command works on a machine that has neither.
+CI runs both as service containers and fails if they skip, because a green run
+that silently tested nothing is worse than a red one.
+
+The test worth reading is `TestOnlyOneClaimerWinsARow` — eight goroutines race
+to claim the same stored request and exactly one may win. Every extra winner
+would be a webhook delivered twice.
+
+`make` runs the tests and builds both binaries. `make release` cross-compiles
+the CLI into `dist/`.
+
+---
+
+## Configuration
+
+| Variable | Default | Meaning |
 |---|---|---|
-| URL | `<gateway>/t/xyz/` | `xyz.your-domain.com` |
-| Setup | none | DNS record + ACME DNS-01 |
-| HTTPS | Zerops-managed certificate | Let's Encrypt wildcard |
-| Full web apps | absolute asset paths need rewriting | no rewriting needed |
+| `PORT` | `3000` | HTTP ingress |
+| `CONTROL_PORT` | `7000` | Raw TCP control port |
+| `DOORBELL_MODE` | `zeroconfig` | `zeroconfig` or `wildcard` |
+| `DOORBELL_BASE_DOMAIN` | — | Required by `wildcard` mode |
+| `DOORBELL_ADMIN_TOKEN` | — | Gates the CLI and the operator surface |
+| `DOORBELL_PUBLIC_BASE` | — | External origin, for building tunnel URLs |
+| `DATABASE_URL` | — | Postgres. Without it: random names, no mailbox |
+| `REDIS_URL` | — | Valkey. Without it: single-container mode |
 
-Zero-config is the default and needs no domain, no DNS and no waiting. Path
-routing means a page requesting `/css/app.css` needs it rewritten to
-`/t/xyz/css/app.css`; Doorbell handles the common cases (`Location` headers,
-`<base href>`, cookie paths) but not every app.
+---
+
+## Known limitations
 
 **Custom-domain mode has never run end to end.** Host routing is implemented and
 covered by seven unit cases, including the ones that must *not* match. It cannot
@@ -236,7 +345,18 @@ be demonstrated without a real domain, and not for the obvious reason: Zerops'
 L7 balancer routes by `Host` *before* the request reaches the gateway, so a
 spoofed header against a `*.zerops.app` subdomain is rejected by the balancer
 with its own 404. Exercising it needs a domain actually pointed at the service
-plus a wildcard certificate. Routing verified; certificate issuance untested.
+plus a wildcard certificate. **Routing verified; certificate issuance untested.**
+
+**Zero-config mode is path-based.** A page requesting `/css/app.css` needs it
+rewritten to `/t/xyz/css/app.css`. Doorbell handles the common cases
+(`Location` headers, `<base href>`, cookie paths) but not every app. This is why
+zero-config is the default for webhooks and the domain is an upgrade rather than
+a prerequisite.
+
+**The mailbox holds bodies up to 1 MiB, and at most 200 per tunnel.** Over
+either limit the request is refused with a clear error rather than stored
+truncated — a clipped payload with a matching `Content-Length` is invalid JSON
+nobody sent.
 
 ---
 
@@ -257,37 +377,16 @@ Only *reserved* names are held. A random name from a fresh tunnel is not
 reserved, so a request for it after disconnect is a genuine 404 — otherwise
 anyone could allocate storage by guessing URLs. Use `-name <something>`.
 
-**`413` on a large body**
-The mailbox stores bodies whole or not at all; a truncated payload with a
-matching `Content-Length` is invalid JSON nobody sent. The limit is 1 MiB.
-
 **Dashboard returns 401**
 It exposes captured request and response bodies, so it needs
-`DOORBELL_ADMIN_TOKEN` — as `?token=…` once, or an
-`Authorization: Bearer` header. Tunnels keep working without it.
+`DOORBELL_ADMIN_TOKEN` — as `?token=…` once, or an `Authorization: Bearer`
+header. Tunnels keep working without it.
 
 **A page loads through the tunnel but its CSS 404s**
-Zero-config mode is path-based. Absolute asset paths need rewriting; see
-[Two modes](#two-modes).
-
----
-
-## Configuration
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `PORT` | `3000` | HTTP ingress |
-| `CONTROL_PORT` | `7000` | Raw TCP control port |
-| `DOORBELL_MODE` | `zeroconfig` | `zeroconfig` or `wildcard` |
-| `DOORBELL_BASE_DOMAIN` | — | Required by `wildcard` mode |
-| `DOORBELL_ADMIN_TOKEN` | — | Gates the CLI and the operator surface |
-| `DOORBELL_PUBLIC_BASE` | — | External origin, for building tunnel URLs |
-| `DATABASE_URL` | — | Postgres. Without it: random names, no mailbox |
-| `REDIS_URL` | — | Valkey. Without it: single-container mode |
+See [Known limitations](#known-limitations); zero-config mode is path-based.
 
 ---
 
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
-# Doorbell

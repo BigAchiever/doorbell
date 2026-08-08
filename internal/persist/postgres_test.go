@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danishalisiddiqui/doorbell/internal/persist"
+	"github.com/BigAchiever/Doorbell/internal/persist"
 )
 
 func openDB(t *testing.T) *persist.DB {

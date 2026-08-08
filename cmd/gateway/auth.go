@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/danishalisiddiqui/doorbell/internal/dashboard"
+	"github.com/BigAchiever/Doorbell/internal/dashboard"
 )
 
 func (g *gateway) tokenOK(presented string) bool {

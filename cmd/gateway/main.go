@@ -32,11 +32,11 @@ import (
 
 	"github.com/hashicorp/yamux"
 
-	"github.com/danishalisiddiqui/doorbell/internal/inspect"
-	"github.com/danishalisiddiqui/doorbell/internal/persist"
-	"github.com/danishalisiddiqui/doorbell/internal/ratelimit"
-	"github.com/danishalisiddiqui/doorbell/internal/registry"
-	"github.com/danishalisiddiqui/doorbell/internal/routing"
+	"github.com/BigAchiever/Doorbell/internal/inspect"
+	"github.com/BigAchiever/Doorbell/internal/persist"
+	"github.com/BigAchiever/Doorbell/internal/ratelimit"
+	"github.com/BigAchiever/Doorbell/internal/registry"
+	"github.com/BigAchiever/Doorbell/internal/routing"
 )
 
 type gateway struct {

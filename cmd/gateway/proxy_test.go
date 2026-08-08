@@ -13,8 +13,8 @@ import (
 
 	"github.com/hashicorp/yamux"
 
-	"github.com/danishalisiddiqui/doorbell/internal/inspect"
-	"github.com/danishalisiddiqui/doorbell/internal/registry"
+	"github.com/BigAchiever/Doorbell/internal/inspect"
+	"github.com/BigAchiever/Doorbell/internal/registry"
 )
 
 // newTestTunnel wires a real yamux session over an in-memory pipe and serves

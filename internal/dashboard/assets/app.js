@@ -241,6 +241,7 @@ export function mergeSpans(spans) {
       last.to = Math.max(last.to, s.to);
       last.open = last.open || s.open;
       last.held += s.held;
+      last.stillHeld += s.stillHeld;
     } else {
       out.push({ ...s });
     }
@@ -281,7 +282,10 @@ export function paintTape(track, stored, ticks, minutes) {
     const to = p.deliveredAt ? new Date(p.deliveredAt).getTime() : now;
     if (!Number.isFinite(from) || to < since) continue;
     if (!perTunnel.has(p.tunnelId)) perTunnel.set(p.tunnelId, []);
-    perTunnel.get(p.tunnelId).push({ from, to, open: !p.deliveredAt, held: 1 });
+    perTunnel.get(p.tunnelId).push({
+      from, to, open: !p.deliveredAt,
+      held: 1, stillHeld: p.deliveredAt ? 0 : 1,
+    });
   }
 
   const gaps = [];
@@ -296,9 +300,21 @@ export function paintTape(track, stored, ticks, minutes) {
     // The label sits inside its own band. In a legend underneath, a reader has
     // to match a name to one of several stripes by eye; written across the
     // stripe there is nothing to match.
+    // While a stretch is still open, report what is still waiting, not the
+    // running total: a flapping tunnel merges into one stripe, and some of what
+    // it caught has already drained. Saying "offline now · 6 held" next to a
+    // header reading "2 held" reads as a contradiction, and is one.
+    const count = g.open ? g.stillHeld : g.held;
     const label = `${g.tunnelId} ${g.open ? 'offline now' : 'offline'} · ` +
-                  `${humanSpan(g.to - g.from)} · ${g.held} held`;
-    html += `<div class="tape__gap${g.open ? ' tape__gap--open' : ''}"` +
+                  `${humanSpan(g.to - g.from)} · ${count} held`;
+    // Below this the band is thinner than the words it carries, so the label
+    // moves outside it rather than being clipped. See .tape__gap--narrow.
+    const narrow = width < 14;
+    const cls = `tape__gap${g.open ? ' tape__gap--open' : ''}` +
+                (narrow ? ' tape__gap--narrow' : '') +
+                // Too close to the left edge to put the label there.
+                (narrow && left < 22 ? ' tape__gap--labelAfter' : '');
+    html += `<div class="${cls}"` +
             ` style="left:${left}%;width:${width}%" title="${esc(label)}">` +
             `<span class="tape__gapLabel">${esc(label)}</span></div>`;
   }

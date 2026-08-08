@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/danishalisiddiqui/doorbell/internal/routing"
+	"github.com/BigAchiever/Doorbell/internal/routing"
 )
 
 func connect(t *testing.T, self string) *routing.Client {

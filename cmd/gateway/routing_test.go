@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/danishalisiddiqui/doorbell/internal/inspect"
-	"github.com/danishalisiddiqui/doorbell/internal/registry"
+	"github.com/BigAchiever/Doorbell/internal/inspect"
+	"github.com/BigAchiever/Doorbell/internal/registry"
 )
 
 func TestSplitTunnelPath(t *testing.T) {

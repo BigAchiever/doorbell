@@ -3,7 +3,7 @@ package inspect_test
 import (
 	"testing"
 
-	"github.com/danishalisiddiqui/doorbell/internal/inspect"
+	"github.com/BigAchiever/Doorbell/internal/inspect"
 )
 
 func TestIsSensitiveCoversRealProviders(t *testing.T) {

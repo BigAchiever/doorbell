@@ -504,8 +504,8 @@ pre.code {
   border-inline: 1px solid var(--held);
 }
 .tape__gap--open { border-right-color: transparent; }
-/* The label rides inside its own band. overflow:hidden means a narrow band
-   simply clips it — the title attribute still carries the full text. */
+/* The label rides inside its own band, which works while the band is wide
+   enough to hold it. */
 .tape__gap { overflow: hidden; }
 .tape__gapLabel {
   display: block;
@@ -513,6 +513,25 @@ pre.code {
   font: 500 var(--fs-xs)/1.4 var(--mono);
   color: var(--held);
   white-space: nowrap;
+}
+
+/* A short outage draws as a sliver, and a sliver cannot hold its own label.
+   Widening the band would read as a longer outage than actually happened, so
+   the label steps outside instead: the geometry stays true to the clock and
+   the text stays readable. This is not an edge case — a tunnel that dropped
+   thirty seconds ago is the exact moment someone is watching this page, and
+   relying on the title tooltip there fails every touch device and every
+   screenshot. */
+.tape__gap--narrow { overflow: visible; }
+.tape__gap--narrow .tape__gapLabel {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  right: 100%; margin-right: var(--s-1);
+  background: var(--bg-raised);
+  border-radius: var(--r-sm);
+}
+/* Near the left edge there is no room on the left, so it goes right instead. */
+.tape__gap--narrow.tape__gap--labelAfter .tape__gapLabel {
+  right: auto; left: 100%; margin: 0 0 0 var(--s-1);
 }
 
 .tape__tick {
