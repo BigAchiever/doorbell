@@ -1,8 +1,18 @@
+# Build output
+doorbell
 doorbell-gw
 gate
-/tmp/
+dist/
+
+# Local runtime state
 *.log
+*.rdb
+/tmp/
+
+# Machine-specific Zerops identifiers, written by the verify scripts
+.doorbell-pid
+.doorbell-sid
+.gw2-sid
 .spike-pid
+
 node_modules/
-dist/
-dist/
