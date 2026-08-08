@@ -16,6 +16,8 @@
 package inspect
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -195,4 +197,73 @@ func Truncate(b []byte) (string, bool) {
 		return string(b), false
 	}
 	return string(b[:MaxBodyCapture]), true
+}
+
+// ─── streaming capture ──────────────────────────────────────────────────────
+
+// Capture wraps a body and records the first MaxBodyCapture bytes AS THEY FLOW,
+// instead of reading the whole thing up front.
+//
+// The up-front version was a real bug: io.ReadAll on a response body blocks
+// until the origin produces MaxBodyCapture+1 bytes or closes the stream, so any
+// tunnelled SSE endpoint, long poll or slow chunked response stalled completely
+// — nothing reached the client until 32 KiB had accumulated. That silently
+// defeated the deliberate absence of a WriteTimeout on the server, which exists
+// precisely so streaming works.
+//
+// done fires exactly once, when the body reaches EOF or is closed, whichever
+// happens first. For an ordinary response that is immediate; for a stream it is
+// when the stream ends, so the inspector row for a long-lived stream appears
+// when it finishes rather than when it starts. That is the correct trade: the
+// developer's traffic must never wait on the inspector.
+type Capture struct {
+	inner io.ReadCloser
+	buf   bytes.Buffer
+	cut   bool
+	once  sync.Once
+	done  func(body string, cut bool)
+}
+
+// NewCapture wraps body. A nil body yields a nil Capture and done is never
+// called, so callers must handle that case themselves.
+func NewCapture(body io.ReadCloser, done func(body string, cut bool)) *Capture {
+	if body == nil {
+		return nil
+	}
+	return &Capture{inner: body, done: done}
+}
+
+func (c *Capture) Read(p []byte) (int, error) {
+	n, err := c.inner.Read(p)
+	if n > 0 {
+		if room := MaxBodyCapture - c.buf.Len(); room > 0 {
+			if n <= room {
+				c.buf.Write(p[:n])
+			} else {
+				c.buf.Write(p[:room])
+				c.cut = true
+			}
+		} else {
+			c.cut = true
+		}
+	}
+	// io.EOF is the normal end of a body, not a failure — finish on any error
+	// so a truncated upstream still produces a record.
+	if err != nil {
+		c.finish()
+	}
+	return n, err
+}
+
+func (c *Capture) Close() error {
+	c.finish()
+	return c.inner.Close()
+}
+
+func (c *Capture) finish() {
+	c.once.Do(func() {
+		if c.done != nil {
+			c.done(c.buf.String(), c.cut)
+		}
+	})
 }

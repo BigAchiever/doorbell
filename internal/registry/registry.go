@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -27,24 +28,27 @@ var ErrNotFound = errors.New("registry: no such tunnel")
 // ErrTaken means the requested subdomain is already serving another tunnel.
 var ErrTaken = errors.New("registry: subdomain already in use")
 
-// Session is the subset of a yamux session the gateway needs. Keeping it as an
-// interface means registry has no dependency on yamux, so it stays unit-testable
-// without opening real sockets.
-type Session interface {
-	Open() (stream any, err error)
-	Close() error
-}
-
 // Tunnel is one live client connection.
 type Tunnel struct {
 	ID        string
 	LocalPort int
 	CreatedAt time.Time
-	Requests  int64
+
+	// requests is atomic because it is incremented on each request's own
+	// goroutine (in the proxy's ModifyResponse) while /api/tunnels reads it
+	// from another. The store's mutex guards the map, not the values inside
+	// it, so a plain int64 here was a genuine data race.
+	requests atomic.Int64
 
 	// session is the multiplexed connection back to the developer's laptop.
 	session any
 }
+
+// AddRequest counts one proxied request.
+func (t *Tunnel) AddRequest() { t.requests.Add(1) }
+
+// Requests reports how many requests have crossed this tunnel.
+func (t *Tunnel) Requests() int64 { return t.requests.Load() }
 
 // Session returns the underlying yamux session. The caller type-asserts it;
 // keeping it as `any` here is what stops this package importing yamux.

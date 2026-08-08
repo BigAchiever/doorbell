@@ -211,6 +211,15 @@ func (d *DB) History(ctx context.Context, limit int) ([]HistoryRow, error) {
 // were waiting for.
 const MaxPendingPerTunnel = 200
 
+// MaxStoredBody is the largest request body the mailbox will hold.
+//
+// It is deliberately much larger than the inspector's display limit. The
+// inspector may show a prefix — nobody is harmed by a clipped preview. The
+// mailbox may not: a body stored short is delivered short, with a matching
+// Content-Length, and the receiving app sees malformed input that the sender
+// never sent. Anything over this is refused outright rather than corrupted.
+const MaxStoredBody = 1 << 20 // 1 MiB
+
 // PendingRequest is one stored request, either awaiting first delivery or kept
 // around so it can be replayed.
 type PendingRequest struct {

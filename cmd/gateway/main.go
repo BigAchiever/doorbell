@@ -19,12 +19,10 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -32,6 +30,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/yamux"
@@ -324,7 +323,7 @@ func (g *gateway) handleClient(conn net.Conn) {
 		}
 		cancel()
 	}
-	log.Printf("tunnel CLOSE %s after %s, %d requests", t.ID, time.Since(t.CreatedAt).Truncate(time.Second), t.Requests)
+	log.Printf("tunnel CLOSE %s after %s, %d requests", t.ID, time.Since(t.CreatedAt).Truncate(time.Second), t.Requests())
 }
 
 func (g *gateway) refuse(conn net.Conn, reason string) {
@@ -396,7 +395,7 @@ func (g *gateway) handleListTunnels(w http.ResponseWriter, _ *http.Request) {
 	list := g.store.List()
 	out := make([]row, 0, len(list))
 	for _, t := range list {
-		out = append(out, row{t.ID, t.LocalPort, t.CreatedAt, t.Requests, g.urlFor(t.ID)})
+		out = append(out, row{t.ID, t.LocalPort, t.CreatedAt, t.Requests(), g.urlFor(t.ID)})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(out); err != nil {
@@ -600,26 +599,10 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 	prefix := "/t/" + id
 	started := time.Now()
 
-	// Capture the request body before it is consumed, then hand the proxy an
-	// identical reader. Reading it here without restoring it would send an
-	// empty body upstream — which is exactly the case that matters, since
-	// webhooks are POSTs.
-	var reqBody string
-	var reqCut bool
-	if r.Body != nil {
-		limited := io.LimitReader(r.Body, inspect.MaxBodyCapture+1)
-		captured, err := io.ReadAll(limited)
-		if err == nil {
-			reqBody, reqCut = inspect.Truncate(captured)
-			// Anything past the capture limit still has to reach the app, so
-			// splice the captured prefix back in front of the untouched rest.
-			r.Body = struct {
-				io.Reader
-				io.Closer
-			}{io.MultiReader(bytes.NewReader(captured), r.Body), r.Body}
-		}
-	}
-
+	// The record is filled in from two goroutines — the request body finishes
+	// on the transport's write side, the response body on the read side — so
+	// its fields are guarded and it is published exactly once, whichever
+	// finishes last.
 	record := &inspect.Record{
 		TunnelID: id,
 		At:       started.UTC(),
@@ -627,8 +610,30 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 		Path:     rest,
 		Query:    r.URL.RawQuery,
 		ReqHead:  inspect.FlattenHeader(r.Header),
-		ReqBody:  reqBody,
-		ReqCut:   reqCut,
+	}
+	var (
+		recMu     sync.Mutex
+		published sync.Once
+		reqDone   = r.Body == nil // no body means nothing to wait for
+		resDone   bool
+	)
+	// publishWhenBothEnded emits the record once both bodies have finished.
+	// Waiting for both is what lets the bodies stream instead of being read up
+	// front, which is the whole point of the change.
+	publishWhenBothEnded := func() {
+		if reqDone && resDone {
+			published.Do(func() { g.finishRecord(record) })
+		}
+	}
+
+	if r.Body != nil {
+		r.Body = inspect.NewCapture(r.Body, func(body string, cut bool) {
+			recMu.Lock()
+			record.ReqBody, record.ReqCut = body, cut
+			reqDone = true
+			publishWhenBothEnded()
+			recMu.Unlock()
+		})
 	}
 
 	proxy := &httputil.ReverseProxy{
@@ -644,6 +649,8 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 			req.Header.Set("X-Forwarded-Proto", schemeOf(r))
 			req.Header.Set("X-Doorbell-Tunnel", id)
 			req.Header.Set("X-Doorbell-Prefix", prefix)
+			// Never let the internal hop marker reach the developer's app.
+			req.Header.Del(peerHopHeader)
 		},
 		Transport: &http.Transport{
 			// The whole trick: instead of dialling a network address, open a
@@ -659,38 +666,47 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 		// here — that is the documented caveat, and the reason wildcard mode
 		// exists as the upgrade.
 		ModifyResponse: func(resp *http.Response) error {
-			t.Requests++
+			t.AddRequest()
 			if loc := resp.Header.Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, prefix) {
 				resp.Header.Set("Location", prefix+loc)
 			}
 
+			recMu.Lock()
 			record.Status = resp.StatusCode
 			record.ResHead = inspect.FlattenHeader(resp.Header)
 			record.DurMs = time.Since(started).Milliseconds()
 			record.BodySize = resp.ContentLength
+			recMu.Unlock()
 
-			// Same tee as the request side. A failure to read here must not
-			// fail the response — the developer's traffic matters more than
-			// the inspector's completeness.
-			if resp.Body != nil {
-				captured, err := io.ReadAll(io.LimitReader(resp.Body, inspect.MaxBodyCapture+1))
-				if err == nil {
-					record.ResBody, record.ResCut = inspect.Truncate(captured)
-					resp.Body = struct {
-						io.Reader
-						io.Closer
-					}{io.MultiReader(bytes.NewReader(captured), resp.Body), resp.Body}
-				}
+			// Capture as the body flows. Reading it here would block a
+			// streaming response until 32 KiB accumulated, which stalled SSE
+			// and long polls completely.
+			if resp.Body == nil {
+				recMu.Lock()
+				resDone = true
+				publishWhenBothEnded()
+				recMu.Unlock()
+				return nil
 			}
-			g.finishRecord(record)
+			resp.Body = inspect.NewCapture(resp.Body, func(body string, cut bool) {
+				recMu.Lock()
+				record.ResBody, record.ResCut = body, cut
+				resDone = true
+				publishWhenBothEnded()
+				recMu.Unlock()
+			})
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
 			log.Printf("proxy %s: %v", id, err)
+			recMu.Lock()
 			record.Status = http.StatusBadGateway
 			record.DurMs = time.Since(started).Milliseconds()
 			record.Error = err.Error()
-			g.finishRecord(record)
+			recMu.Unlock()
+			// The transport failed, so no response body will ever arrive;
+			// publish now rather than waiting for a callback that cannot fire.
+			published.Do(func() { g.finishRecord(record) })
 			http.Error(w, fmt.Sprintf("doorbell: tunnel %q did not answer — is your local server still running on port %d?", id, t.LocalPort), http.StatusBadGateway)
 		},
 	}

@@ -47,7 +47,12 @@ func (g *gateway) bufferRequest(w http.ResponseWriter, r *http.Request, id, rest
 		return false
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	// Deliberately NOT r.Context(). The caller is a webhook sender with its own
+	// short timeout; if it gives up while Postgres is slow, cancelling the
+	// INSERT would drop the very request this feature exists to save. Once
+	// Doorbell has decided to take responsibility, the write must outlive the
+	// connection that delivered it.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 15*time.Second)
 	defer cancel()
 
 	reserved, err := g.db.IsReserved(ctx, id)
@@ -61,9 +66,29 @@ func (g *gateway) bufferRequest(w http.ResponseWriter, r *http.Request, id, rest
 		return false
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, inspect.MaxBodyCapture+1))
+	// Read up to one byte past the limit so an oversized body is detectable.
+	//
+	// The mailbox must store bodies WHOLE. Clipping to the inspector's 32 KiB
+	// display limit and delivering the prefix later would hand the app a
+	// truncated payload with a matching Content-Length — syntactically invalid
+	// JSON the sender never produced, and no way for anyone to tell. If it does
+	// not fit, say so instead of corrupting it.
+	body, err := io.ReadAll(io.LimitReader(r.Body, persist.MaxStoredBody+1))
 	if err != nil {
 		return false
+	}
+	if len(body) > persist.MaxStoredBody {
+		log.Printf("mailbox: REFUSED %s %s for %q — body over %d bytes", r.Method, rest, id, persist.MaxStoredBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"doorbell": "not-buffered",
+			"reason":   "body exceeds the mailbox limit, and storing a truncated copy would corrupt it",
+			"limit":    persist.MaxStoredBody,
+		}); err != nil {
+			log.Printf("mailbox: encode 413: %v", err)
+		}
+		return true
 	}
 
 	pendingID, err := g.db.Enqueue(ctx, id, r.Method, rest, r.URL.RawQuery, inspect.FlattenHeader(r.Header), body)

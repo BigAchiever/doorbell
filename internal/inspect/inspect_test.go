@@ -1,6 +1,7 @@
 package inspect
 
 import (
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -131,5 +132,97 @@ func TestTruncate(t *testing.T) {
 	}
 	if len(s) != MaxBodyCapture {
 		t.Errorf("truncated to %d bytes, want %d", len(s), MaxBodyCapture)
+	}
+}
+
+// TestCaptureDoesNotBlockAStream is the regression guard for the bug this
+// replaced: the old code called io.ReadAll on the body, so a streaming
+// response produced nothing downstream until 32 KiB had accumulated. A
+// tunnelled SSE endpoint or Vite HMR simply hung.
+func TestCaptureDoesNotBlockAStream(t *testing.T) {
+	pr, pw := io.Pipe()
+	c := NewCapture(pr, func(string, bool) {})
+
+	// An SSE-shaped source: a small event now, and nothing else for a while.
+	go func() {
+		_, _ = pw.Write([]byte("data: first\n\n"))
+	}()
+
+	got := make(chan string, 1)
+	go func() {
+		buf := make([]byte, 64)
+		n, err := c.Read(buf)
+		if err != nil && err != io.EOF {
+			return
+		}
+		got <- string(buf[:n])
+	}()
+
+	select {
+	case s := <-got:
+		if s != "data: first\n\n" {
+			t.Errorf("read %q, want the first event verbatim", s)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Read blocked waiting for more bytes — a stream would stall")
+	}
+	_ = pw.Close()
+}
+
+func TestCaptureRecordsBodyAndReportsCut(t *testing.T) {
+	t.Run("small body is captured whole", func(t *testing.T) {
+		var body string
+		var cut bool
+		c := NewCapture(io.NopCloser(strings.NewReader("hello world")),
+			func(b string, k bool) { body, cut = b, k })
+
+		if _, err := io.ReadAll(c); err != nil {
+			t.Fatalf("ReadAll: %v", err)
+		}
+		if body != "hello world" || cut {
+			t.Errorf("captured (%q, cut=%v), want (hello world, false)", body, cut)
+		}
+	})
+
+	t.Run("oversized body is clipped and flagged", func(t *testing.T) {
+		var body string
+		var cut bool
+		big := strings.Repeat("x", MaxBodyCapture+500)
+		c := NewCapture(io.NopCloser(strings.NewReader(big)),
+			func(b string, k bool) { body, cut = b, k })
+
+		// Everything must still reach the reader — only the capture is clipped.
+		n, err := io.Copy(io.Discard, c)
+		if err != nil {
+			t.Fatalf("Copy: %v", err)
+		}
+		if n != int64(len(big)) {
+			t.Errorf("forwarded %d bytes, want %d — the body must pass through intact", n, len(big))
+		}
+		if !cut {
+			t.Error("oversized capture not flagged as cut")
+		}
+		if len(body) != MaxBodyCapture {
+			t.Errorf("captured %d bytes, want %d", len(body), MaxBodyCapture)
+		}
+	})
+}
+
+func TestCaptureFiresDoneExactlyOnce(t *testing.T) {
+	calls := 0
+	c := NewCapture(io.NopCloser(strings.NewReader("x")), func(string, bool) { calls++ })
+
+	_, _ = io.ReadAll(c) // reaches EOF -> finish
+	_ = c.Close()        // must not fire again
+	_ = c.Close()
+
+	if calls != 1 {
+		t.Errorf("done fired %d times, want exactly 1", calls)
+	}
+}
+
+func TestNewCaptureHandlesNilBody(t *testing.T) {
+	if c := NewCapture(nil, func(string, bool) {}); c != nil {
+		t.Error("NewCapture(nil) should be nil so callers handle the no-body case")
 	}
 }

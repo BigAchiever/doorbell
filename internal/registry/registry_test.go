@@ -3,6 +3,7 @@ package registry
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -98,5 +99,38 @@ func TestListReflectsLiveTunnels(t *testing.T) {
 	m.Remove("b")
 	if got := len(m.List()); got != 2 {
 		t.Errorf("after Remove, List() has %d entries, want 2", got)
+	}
+}
+
+// TestRequestCounterIsRaceFree mirrors how cmd/gateway actually uses this: the
+// counter is incremented on each request's own goroutine inside the proxy's
+// ModifyResponse, while /api/tunnels reads it from another. It used to be a
+// plain int64 field, which the race detector flags immediately.
+func TestRequestCounterIsRaceFree(t *testing.T) {
+	m := NewMemory(1)
+	tun, err := m.Add("shop", 3000, "session")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	const writers, reads = 50, 50
+	var wg sync.WaitGroup
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); tun.AddRequest() }()
+	}
+	for i := 0; i < reads; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, x := range m.List() {
+				_ = x.Requests()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := tun.Requests(); got != writers {
+		t.Errorf("Requests() = %d, want %d — increments were lost", got, writers)
 	}
 }

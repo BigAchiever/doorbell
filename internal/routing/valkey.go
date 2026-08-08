@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -116,8 +117,12 @@ func (c *Client) Heartbeat(ctx context.Context, ids func() []string) {
 				if err := c.Announce(ctx, id); err != nil {
 					// Losing one refresh is survivable — the TTL is three
 					// heartbeats wide precisely so a blip does not evict a
-					// healthy tunnel.
-					return
+					// healthy tunnel. Returning here (as this used to) killed
+					// the goroutine permanently, so one transient Valkey error
+					// silently disabled peer forwarding for the life of the
+					// process. Log and keep beating; if Valkey is really gone
+					// the TTL expiring is the correct outcome.
+					log.Printf("routing: announce %s failed, will retry: %v", id, err)
 				}
 			}
 		}
