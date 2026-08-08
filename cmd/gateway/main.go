@@ -29,6 +29,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -37,7 +38,9 @@ import (
 
 	"github.com/danishalisiddiqui/doorbell/internal/dashboard"
 	"github.com/danishalisiddiqui/doorbell/internal/inspect"
+	"github.com/danishalisiddiqui/doorbell/internal/persist"
 	"github.com/danishalisiddiqui/doorbell/internal/registry"
+	"github.com/danishalisiddiqui/doorbell/internal/routing"
 	"github.com/danishalisiddiqui/doorbell/internal/tunnel"
 )
 
@@ -53,6 +56,8 @@ type config struct {
 	baseDomain  string
 	adminToken  string
 	publicBase  string // externally visible origin, for building tunnel URLs
+	databaseURL string
+	redisURL    string
 }
 
 func loadConfig() config {
@@ -63,6 +68,8 @@ func loadConfig() config {
 		baseDomain:  os.Getenv("DOORBELL_BASE_DOMAIN"),
 		adminToken:  os.Getenv("DOORBELL_ADMIN_TOKEN"),
 		publicBase:  strings.TrimSuffix(os.Getenv("DOORBELL_PUBLIC_BASE"), "/"),
+		databaseURL: os.Getenv("DATABASE_URL"),
+		redisURL:    os.Getenv("REDIS_URL"),
 	}
 	// Wildcard mode without a domain is a misconfiguration that would produce
 	// broken URLs on every tunnel. Fall back loudly rather than serving them.
@@ -87,6 +94,12 @@ type gateway struct {
 	cfg   config
 	store registry.Store
 	rec   *inspect.Recorder
+
+	// Both are optional. A nil db means random names and no history; a nil
+	// route means single-container operation. Neither stops a tunnel working,
+	// which is the point — a tunnel is more useful than a database.
+	db    *persist.DB
+	route *routing.Client
 }
 
 func main() {
@@ -99,8 +112,80 @@ func main() {
 		rec:   inspect.NewRecorder(500),
 	}
 
+	ctx := context.Background()
+	g.connectPersistence(ctx)
+	g.connectRouting(ctx)
+
 	go g.serveControl()
 	g.serveHTTP()
+}
+
+// connectPersistence attaches Postgres if configured. Failure is logged and
+// tolerated: reserved names and history are features, not preconditions.
+func (g *gateway) connectPersistence(ctx context.Context) {
+	if g.cfg.databaseURL == "" {
+		log.Printf("persist: DATABASE_URL unset — random names, no history")
+		return
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	db, err := persist.Open(dialCtx, g.cfg.databaseURL)
+	if err != nil {
+		log.Printf("persist: DEGRADED, continuing without Postgres: %v", err)
+		return
+	}
+	g.db = db
+	log.Printf("persist: Postgres connected — reserved names and history enabled")
+}
+
+// connectRouting attaches Valkey if configured, then starts the heartbeat that
+// keeps this container's route claims alive and the subscriber that mirrors
+// sibling containers' inspector events into the local dashboard.
+func (g *gateway) connectRouting(ctx context.Context) {
+	if g.cfg.redisURL == "" {
+		log.Printf("routing: REDIS_URL unset — single-container mode")
+		return
+	}
+	self, err := routing.SelfAddress(g.cfg.httpPort)
+	if err != nil {
+		log.Printf("routing: DEGRADED, cannot determine own address: %v", err)
+		return
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	client, err := routing.Connect(dialCtx, g.cfg.redisURL, self)
+	if err != nil {
+		log.Printf("routing: DEGRADED, continuing without Valkey: %v", err)
+		return
+	}
+	g.route = client
+	log.Printf("routing: Valkey connected — this container advertises itself as %s", self)
+
+	go client.Heartbeat(ctx, func() []string {
+		list := g.store.List()
+		ids := make([]string, 0, len(list))
+		for _, t := range list {
+			ids = append(ids, t.ID)
+		}
+		return ids
+	})
+
+	// Mirror sibling containers' records so any dashboard shows all traffic,
+	// no matter which container proxied the request.
+	go func() {
+		for payload := range client.SubscribeEvents(ctx) {
+			var rec inspect.Record
+			if err := json.Unmarshal(payload, &rec); err != nil {
+				continue
+			}
+			if rec.Origin == client.Self() {
+				continue // our own event, already in the local ring buffer
+			}
+			g.rec.AddRemote(&rec)
+		}
+	}()
 }
 
 // ─── control plane: the raw TCP port ────────────────────────────────────────
@@ -173,12 +258,38 @@ func (g *gateway) handleClient(conn net.Conn) {
 		return
 	}
 
+	// A requested name has to be checked against the durable reservation table
+	// before the in-memory registry, otherwise two containers could each hand
+	// out the same name to different people.
+	if hello.Subdomain != "" && g.db != nil {
+		claimCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := g.db.ClaimName(claimCtx, hello.Subdomain, hello.Token)
+		cancel()
+		if errors.Is(err, persist.ErrNameHeld) {
+			g.refuse(conn, fmt.Sprintf("the name %q is reserved by someone else", hello.Subdomain))
+			return
+		} else if err != nil {
+			// A database wobble should not stop a tunnel opening; the worst
+			// case is a name that is not durably reserved this session.
+			log.Printf("control: %s name claim degraded: %v", remote, err)
+		}
+	}
+
 	t, err := g.store.Add(hello.Subdomain, hello.LocalPort, session)
 	if err != nil {
 		log.Printf("control: %s register: %v", remote, err)
 		g.refuse(conn, err.Error())
 		session.Close()
 		return
+	}
+
+	// Tell every other container where this tunnel lives.
+	if g.route != nil {
+		annCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := g.route.Announce(annCtx, t.ID); err != nil {
+			log.Printf("control: announce %s: %v", t.ID, err)
+		}
+		cancel()
 	}
 
 	publicURL := g.urlFor(t.ID)
@@ -199,6 +310,16 @@ func (g *gateway) handleClient(conn net.Conn) {
 	// Block until the developer hits Ctrl-C or the network drops.
 	<-session.CloseChan()
 	g.store.Remove(t.ID)
+	if g.route != nil {
+		// Withdraw explicitly rather than waiting out the TTL, so sibling
+		// containers stop forwarding here within milliseconds instead of
+		// seconds.
+		wCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := g.route.Withdraw(wCtx, t.ID); err != nil {
+			log.Printf("control: withdraw %s: %v", t.ID, err)
+		}
+		cancel()
+	}
 	log.Printf("tunnel CLOSE %s after %s, %d requests", t.ID, time.Since(t.CreatedAt).Truncate(time.Second), t.Requests)
 }
 
@@ -238,6 +359,7 @@ func (g *gateway) serveHTTP() {
 	mux.HandleFunc("/api/tunnels", g.handleListTunnels)
 	mux.HandleFunc("/api/requests", g.handleListRequests)
 	mux.HandleFunc("/api/stream", g.handleStream)
+	mux.HandleFunc("/api/history", g.handleHistory)
 	mux.HandleFunc("/t/", g.handleTunnelRequest)
 	mux.HandleFunc("/", g.handleIndex)
 
@@ -368,6 +490,11 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 	t, err := g.store.Get(id)
 	if err != nil {
 		if errors.Is(err, registry.ErrNotFound) {
+			// Not ours. It may belong to a sibling container — this is the
+			// case that makes maxContainers > 1 work at all.
+			if g.forwardToPeer(w, r, id) {
+				return
+			}
 			http.Error(w, fmt.Sprintf("doorbell: no live tunnel named %q", id), http.StatusNotFound)
 			return
 		}
@@ -466,7 +593,7 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 					}{io.MultiReader(bytes.NewReader(captured), resp.Body), resp.Body}
 				}
 			}
-			g.rec.Add(record)
+			g.finishRecord(record)
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
@@ -474,11 +601,57 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 			record.Status = http.StatusBadGateway
 			record.DurMs = time.Since(started).Milliseconds()
 			record.Error = err.Error()
-			g.rec.Add(record)
+			g.finishRecord(record)
 			http.Error(w, fmt.Sprintf("doorbell: tunnel %q did not answer — is your local server still running on port %d?", id, t.LocalPort), http.StatusBadGateway)
 		},
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// peerHopHeader marks a request that has already been forwarded once.
+//
+// Without it a stale Valkey route could bounce a request between two containers
+// until something times out. One hop is always enough: the route names the
+// container that actually holds the socket, so if that container also cannot
+// serve it, the tunnel is genuinely gone.
+const peerHopHeader = "X-Doorbell-Peer-Hop"
+
+// forwardToPeer sends a request to the sibling container that owns the tunnel.
+// It reports whether the request was handled.
+func (g *gateway) forwardToPeer(w http.ResponseWriter, r *http.Request, id string) bool {
+	if g.route == nil || r.Header.Get(peerHopHeader) != "" {
+		return false
+	}
+
+	lookupCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	owner, err := g.route.Owner(lookupCtx, id)
+	cancel()
+	if err != nil {
+		log.Printf("peer: owner lookup %s: %v", id, err)
+		return false
+	}
+	if owner == "" || owner == g.route.Self() {
+		// Either nobody claims it, or the route says us and our own registry
+		// disagrees — in both cases forwarding would achieve nothing.
+		return false
+	}
+
+	target := &url.URL{Scheme: "http", Host: owner}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Director = func(req *http.Request) {
+		req.URL.Scheme = "http"
+		req.URL.Host = owner
+		// Path is left exactly as received: the owning container runs the same
+		// /t/<id>/... routing and will strip the prefix itself.
+		req.Header.Set(peerHopHeader, g.route.Self())
+	}
+	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		log.Printf("peer: forward %s -> %s: %v", id, owner, err)
+		http.Error(w, fmt.Sprintf("doorbell: tunnel %q lives on another gateway container that did not answer", id), http.StatusBadGateway)
+	}
+	log.Printf("peer: forwarding %s to %s", id, owner)
+	proxy.ServeHTTP(w, r)
+	return true
 }
 
 // splitTunnelPath turns "/t/quiet-frog/a/b" into ("quiet-frog", "/a/b").
@@ -502,4 +675,58 @@ func schemeOf(r *http.Request) string {
 		return "https"
 	}
 	return "http"
+}
+
+// finishRecord is the single exit point for a completed request record: store
+// it locally, mirror it to sibling containers, and append a line of durable
+// history.
+//
+// The two remote calls are fired asynchronously and deliberately do not share
+// the request's context. By the time this runs the response is already on its
+// way to the client, and a slow Valkey or Postgres must never be able to hold
+// a user's HTTP request open.
+func (g *gateway) finishRecord(rec *inspect.Record) {
+	if g.route != nil {
+		rec.Origin = g.route.Self()
+	}
+	g.rec.Add(rec)
+
+	if g.route != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := g.route.PublishEvent(ctx, rec); err != nil {
+				log.Printf("bus: publish: %v", err)
+			}
+		}()
+	}
+
+	if g.db != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := g.db.RecordRequest(ctx, rec.TunnelID, rec.At, rec.Method, rec.Path, rec.Status, rec.DurMs, rec.Error); err != nil {
+				log.Printf("persist: record: %v", err)
+			}
+		}()
+	}
+}
+
+// handleHistory serves durable request history from Postgres — the traffic the
+// in-memory ring buffer forgot on the last deploy.
+func (g *gateway) handleHistory(w http.ResponseWriter, r *http.Request) {
+	if g.db == nil {
+		http.Error(w, `{"error":"history unavailable: no database configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	rows, err := g.db.History(r.Context(), 200)
+	if err != nil {
+		log.Printf("api: history: %v", err)
+		http.Error(w, `{"error":"history query failed"}`, http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(rows); err != nil {
+		log.Printf("api: encode history: %v", err)
+	}
 }

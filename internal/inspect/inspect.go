@@ -31,6 +31,11 @@ type Record struct {
 	ID       int64     `json:"id"`
 	TunnelID string    `json:"tunnelId"`
 	At       time.Time `json:"at"`
+	// Origin is the address of the gateway container that proxied this
+	// request. It exists so a container can recognise its own events coming
+	// back around the Valkey bus and skip them, instead of showing every
+	// request twice.
+	Origin string `json:"origin,omitempty"`
 
 	Method  string            `json:"method"`
 	Path    string            `json:"path"`
@@ -70,9 +75,20 @@ func NewRecorder(capacity int) *Recorder {
 	}
 }
 
-// Add stores a record and pushes it to every live subscriber.
-func (r *Recorder) Add(rec *Record) {
+// Add stores a record produced by this container and pushes it to every live
+// subscriber.
+func (r *Recorder) Add(rec *Record) { r.store(rec) }
+
+// AddRemote stores a record that arrived from a sibling container over the
+// Valkey bus. It behaves identically to Add — the distinction exists at the
+// call site, where the caller must not re-publish it and start a loop.
+func (r *Recorder) AddRemote(rec *Record) { r.store(rec) }
+
+func (r *Recorder) store(rec *Record) {
 	r.mu.Lock()
+	// IDs are assigned locally even for remote records: sequences are per
+	// container, so a remote ID could collide with a local one, and the
+	// dashboard dedupes by ID.
 	r.seq++
 	rec.ID = r.seq
 	r.ring[r.next] = rec
