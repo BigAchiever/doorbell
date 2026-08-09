@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -55,6 +56,13 @@ type gateway struct {
 	// which is the point — a tunnel is more useful than a database.
 	db    *persist.DB
 	route *routing.Client
+
+	// draining holds the IDs of tunnels whose mailbox is being replayed right
+	// now. A request that arrives during that window must join the back of the
+	// queue instead of being proxied straight through, or it overtakes webhooks
+	// that have been waiting for minutes — which breaks the ordering guarantee
+	// the whole mailbox exists to provide. Keyed by tunnel ID, value unused.
+	draining sync.Map
 }
 
 func main() {

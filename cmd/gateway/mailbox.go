@@ -123,27 +123,44 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 	if g.db == nil {
 		return
 	}
-	// Reading the queue is quick; each DELIVERY gets its own deadline below.
-	// A single 60s budget shared across the whole drain meant that with a full
-	// 200-request mailbox the later ones all failed on an expired context.
-	readCtx, cancelRead := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancelRead()
-
-	queued, err := g.db.Undelivered(readCtx, id)
-	if err != nil {
-		log.Printf("mailbox: read queue %s: %v", id, err)
-		return
-	}
-	if len(queued) == 0 {
-		return
-	}
-	log.Printf("mailbox: draining %d held request(s) into %s", len(queued), id)
-
 	// One client for the whole drain. Building an http.Transport per request
 	// allocated a fresh connection pool and its goroutines 200 times over.
 	client := sessionClient(session)
 	defer client.CloseIdleConnections()
 
+	// Rounds, not one pass. While this runs the tunnel is flagged draining, so
+	// anything arriving now is written to the mailbox rather than proxied past
+	// the queue — which means the queue can grow while we work through it. One
+	// pass would leave those sitting until the next reconnect.
+	//
+	// Bounded, because a tunnel under continuous load would otherwise never stop
+	// draining and every request would take the long way round forever. Past the
+	// bound the flag clears and traffic goes live again, which loses ordering
+	// only for a tunnel that was never idle in the first place.
+	const maxRounds = 20
+	for round := 0; round < maxRounds; round++ {
+		readCtx, cancelRead := context.WithTimeout(context.Background(), 15*time.Second)
+		queued, err := g.db.Undelivered(readCtx, id)
+		cancelRead()
+		if err != nil {
+			log.Printf("mailbox: read queue %s: %v", id, err)
+			return
+		}
+		if len(queued) == 0 {
+			return
+		}
+		log.Printf("mailbox: draining %d held request(s) into %s", len(queued), id)
+		if !g.drainBatch(id, session, client, queued) {
+			return
+		}
+	}
+	log.Printf("mailbox: %s still receiving faster than it drains, going live", id)
+}
+
+// drainBatch delivers one read of the queue in order, reporting whether the
+// caller should look for more. A false means stop: the session went away, the
+// database refused, or another drain took over.
+func (g *gateway) drainBatch(id string, session *yamux.Session, client *http.Client, queued []persist.PendingRequest) bool {
 	delivered := 0
 	for _, p := range queued {
 		if session.IsClosed() {
@@ -151,7 +168,7 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 			// started with — the old message said "200 still held" after
 			// successfully delivering 199 of them.
 			log.Printf("mailbox: %s went away mid-drain, %d of %d still held", id, len(queued)-delivered, len(queued))
-			return
+			return false
 		}
 
 		// Take the lease before sending. Without it, a second drain for the
@@ -161,10 +178,14 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 		cancelClaim()
 		if err != nil {
 			log.Printf("mailbox: claim %d: %v", p.ID, err)
-			return
+			return false
 		}
 		if !won {
-			continue // another drain owns this one
+			// Another drain owns this row. Skipping to the next one would
+			// deliver a newer request while an older one is still in flight
+			// elsewhere, so stop here and let that drain finish the queue.
+			log.Printf("mailbox: %s row %d claimed by another drain, yielding the queue", id, p.ID)
+			return false
 		}
 		status, err := func() (int, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -180,7 +201,7 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 			}
 			cancelRel()
 			log.Printf("mailbox: deliver %d to %s failed, still held: %v", p.ID, id, err)
-			return
+			return false
 		}
 		delivered++
 		// Between here and the row being marked, the request has been delivered
@@ -196,6 +217,7 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 			log.Printf("mailbox: mark delivered %d: %v — it may be delivered again after the lease expires", p.ID, err)
 		}
 	}
+	return true
 }
 
 // markDelivered records a delivery, retrying a few times before giving up.

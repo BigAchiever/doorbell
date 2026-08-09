@@ -428,6 +428,31 @@ func (d *DB) MarkDelivered(ctx context.Context, id int64, status int) error {
 	return nil
 }
 
+// Retention is how long a delivered request is kept before the sweep removes
+// it. Long enough that you can still replay yesterday's webhook, short enough
+// that a busy gateway does not grow a table nobody reads.
+const Retention = 7 * 24 * time.Hour
+
+// Sweep deletes delivered requests older than the retention window and returns
+// how many rows went.
+//
+// Enqueue already trims a tunnel back to MaxPendingPerTunnel, but that only ever
+// touches tunnels that are still receiving. A tunnel used once during a demo and
+// abandoned keeps its delivered rows, bodies and all, forever. This is the job
+// that reclaims them, and it is deliberately scheduled rather than done on the
+// request path: deleting rows is not something a webhook sender should wait for.
+func (d *DB) Sweep(ctx context.Context, olderThan time.Duration) (int64, error) {
+	const q = `DELETE FROM pending
+	           WHERE delivered_at IS NOT NULL
+	             AND delivered_at < now() - $1::interval`
+
+	tag, err := d.pool.Exec(ctx, q, olderThan.String())
+	if err != nil {
+		return 0, fmt.Errorf("persist: sweep: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (d *DB) scanPending(ctx context.Context, q string, args ...any) ([]PendingRequest, error) {
 	rows, err := d.pool.Query(ctx, q, args...)
 	if err != nil {

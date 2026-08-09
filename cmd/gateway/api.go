@@ -3,6 +3,7 @@ package main
 // JSON and HTML endpoints the dashboard is built on.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/BigAchiever/doorbell/internal/dashboard"
+	"github.com/BigAchiever/doorbell/internal/persist"
 )
 
 func (g *gateway) handleListTunnels(w http.ResponseWriter, _ *http.Request) {
@@ -172,5 +174,42 @@ func (g *gateway) handleHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(rows); err != nil {
 		log.Printf("api: encode history: %v", err)
+	}
+}
+
+// handleSweep runs the retention pass. It exists as an endpoint rather than a
+// goroutine on a ticker so the schedule lives in zerops.yaml, where it can be
+// read and changed without a rebuild, and so a run is something you can trigger
+// and watch rather than something you have to trust is happening.
+//
+// Behind the operator token like everything else that touches stored requests —
+// the cron entry passes DOORBELL_ADMIN_TOKEN from the service's own environment.
+func (g *gateway) handleSweep(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"POST only"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	if g.db == nil {
+		http.Error(w, `{"error":"sweep needs a database"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 60*time.Second)
+	defer cancel()
+
+	removed, err := g.db.Sweep(ctx, persist.Retention)
+	if err != nil {
+		log.Printf("sweep: %v", err)
+		http.Error(w, `{"error":"sweep failed"}`, http.StatusInternalServerError)
+		return
+	}
+	log.Printf("sweep: removed %d delivered request(s) older than %s", removed, persist.Retention)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]any{
+		"removed":   removed,
+		"retention": persist.Retention.String(),
+	}); err != nil {
+		log.Printf("sweep: encode: %v", err)
 	}
 }

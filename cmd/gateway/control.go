@@ -141,7 +141,16 @@ func (g *gateway) handleClient(conn net.Conn) {
 
 	// Anything that arrived while this tunnel was away goes in now, before the
 	// developer has a chance to wonder where their webhooks went.
-	go g.drainMailbox(t.ID, session)
+	//
+	// The flag goes up BEFORE the goroutine starts, not inside it. Set it inside
+	// and there is a window where the tunnel is already registered but not yet
+	// marked draining, and a request arriving in that window is proxied straight
+	// past a queue of older ones.
+	g.draining.Store(t.ID, struct{}{})
+	go func() {
+		defer g.draining.Delete(t.ID)
+		g.drainMailbox(t.ID, session)
+	}()
 
 	// Block until the developer hits Ctrl-C or the network drops.
 	<-session.CloseChan()

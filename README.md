@@ -170,6 +170,22 @@ database you own, sitting in the path.
 ngrok's inspector and replay are good, and they're free. But they can't replay a
 request that never reached your machine in the first place.
 
+### Prior art, honestly
+
+Doorbell is not the first thing to notice that webhooks need somewhere to wait.
+Two tools already do parts of this well, and the comparison above only covers
+tunnels, so they belong here rather than in it.
+
+| | What it does | Why I still built this |
+|---|---|---|
+| [Hookdeck](https://hookdeck.com/) | The closest thing to this. Queues and retries webhooks, and its CLI forwards them to localhost. | A hosted service. Your payloads pass through their infrastructure, on their plan, under their retention. |
+| [Convoy](https://getconvoy.io/) | Open source, self-hostable, durable webhook delivery on Postgres. | A gateway, not a tunnel. It delivers to a reachable service; it has no way to reach a laptop behind NAT. |
+
+So the gap is narrow and specific: durable webhook delivery *and* a tunnel to a
+machine with no public address, running on infrastructure you own. If Hookdeck's
+hosting model is fine for you, use Hookdeck — it is a more finished product than
+this is.
+
 <p align="center">
   <img src="docs/comparison.png" alt="A capability comparison between ngrok, Cloudflare Tunnel, localtunnel, frp/bore and Doorbell" width="900">
 </p>
@@ -182,7 +198,7 @@ request that never reached your machine in the first place.
 |---|---|---|
 | **Nothing is dropped** | Written to Postgres *before* the sender is answered | 200 per tunnel, then oldest-first eviction |
 | **Answered immediately** | `202`, so the sender's retry policy never fires | `202` means *stored*, not *your app processed it* |
-| **Delivered in order** | The queue drains oldest first | — |
+| **Delivered in order** | The queue drains oldest first, and a tunnel mid-replay buffers new arrivals so they queue behind it | Holds while a drain is in flight; past 20 rounds a tunnel that never goes idle returns to live delivery |
 | **Delivered once** | An atomic lease — 8 goroutines race, one wins | Against concurrent drains. A database failure *after* a delivery repeats it; dedupe on `X-Doorbell-Id` |
 | **Replayable** | Any stored request, re-sent on demand | Minus the redacted headers below |
 | **Stable URL** | Reserved names survive restarts and redeploys | Only reserved names are held |
@@ -349,7 +365,7 @@ was all six together, out of one pasted file.
 
 ## Run your own
 
-Needs [Go 1.22+](https://go.dev/dl/). To use a gateway that already exists, skip
+Needs [Go 1.25+](https://go.dev/dl/). To use a gateway that already exists, skip
 to step 2.
 
 **1. Deploy a gateway.** Copy [`zerops-import.yml`](zerops-import.yml), go to
@@ -437,7 +453,7 @@ go run ./cmd/doorbell -gateway localhost 3000
 go test ./... -race
 ```
 
-**55 tests across 9 packages.** The suites in `internal/persist` and
+**59 tests across 9 packages.** The suites in `internal/persist` and
 `internal/routing` need a real Postgres and Valkey, and they **skip** when those
 aren't around, so the command above works fine on a machine that has neither. CI
 runs both as service containers and **fails the build if they skip**. A green run

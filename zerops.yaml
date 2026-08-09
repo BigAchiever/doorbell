@@ -48,6 +48,18 @@ zerops:
           protocol: tcp
           httpSupport: false
 
+      # Nightly retention pass. Enqueue already trims a busy tunnel back to its
+      # cap, but a tunnel used once and abandoned keeps its delivered rows for
+      # ever — bodies included. This is the job that reclaims them.
+      #
+      # allContainers is false on purpose: with maxContainers 3 this would
+      # otherwise run three times against one shared database.
+      crontab:
+        - command: 'wget -qO- --post-data="" --header="Authorization: Bearer $DOORBELL_ADMIN_TOKEN" http://localhost:3000/internal/sweep'
+          timing: "20 3 * * *"
+          allContainers: false
+          workingDir: /var/www
+
       envVariables:
         PORT: "3000"
         CONTROL_PORT: "7000"

@@ -41,6 +41,16 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A drain in flight means older requests are still being replayed. Send this
+	// one to the back of that queue rather than ahead of it: "delivered in order"
+	// has to mean the order they arrived in, not the order they happened to be
+	// proxied in.
+	if _, busy := g.draining.Load(id); busy {
+		if g.bufferRequest(w, r, id, rest) {
+			return
+		}
+	}
+
 	t, err := g.store.Get(id)
 	if err != nil {
 		if errors.Is(err, registry.ErrNotFound) {

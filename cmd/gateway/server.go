@@ -39,6 +39,7 @@ func (g *gateway) httpServer() *http.Server {
 	mux.Handle("/api/mailbox", operator(g.handleMailbox))
 	mux.Handle("/api/replay/", operator(g.handleReplay))
 	mux.Handle("/dashboard", operator(g.handleDashboard))
+	mux.Handle("/internal/sweep", operator(g.handleSweep))
 
 	srv := &http.Server{
 		Addr:    ":" + g.cfg.httpPort,
