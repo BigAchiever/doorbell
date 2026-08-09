@@ -229,7 +229,7 @@ try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.d
 
   <section class="sec" id="install">
     <h2 class="sec__h"><span class="sec__n" aria-hidden="true">03</span>Try it against this gateway</h2>
-    <p class="sec__lede">Four lines. The tunnel is live before the fourth one finishes.</p>
+    <p class="sec__lede">Three lines. The tunnel is live before the third one finishes.</p>
 
     <figure class="term">
       <figcaption class="term__cap">Terminal
@@ -237,7 +237,6 @@ try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.d
       </figcaption>
       <pre class="term__body" id="cmd" translate="no">$ go install github.com/BigAchiever/Doorbell/cmd/doorbell@latest
 $ export DOORBELL_GATEWAY=<span id="host">…</span>
-$ export DOORBELL_TOKEN=&lt;ask the operator&gt;
 $ doorbell 3000</pre>
     </figure>
 
@@ -251,6 +250,18 @@ $ doorbell 3000</pre>
         <h3>What you get back</h3>
         <p><code class="v-accent" translate="no">https://…/t/shop/</code> - a stable URL. Register
            it once with whatever is calling you.</p>
+      </div>
+      <div class="note-block">
+        <h3>No token on this gateway</h3>
+        <p>The control port here is left open, so anyone may forward a port. Only the
+           inspector is gated - opening a tunnel never shows you someone else's traffic.
+           Your own deployment sets <code translate="no">DOORBELL_CLIENT_TOKEN</code> to close it.</p>
+      </div>
+      <div class="note-block">
+        <h3>Needs IPv6</h3>
+        <p>The address above is IPv6. Zerops serves a raw TCP port from the project's own
+           public IP, and a shared IPv4 cannot carry one - so the CLI needs an IPv6 route.
+           The <code translate="no">curl</code> demo at the top of this page works on either.</p>
       </div>
     </div>
   </section>
