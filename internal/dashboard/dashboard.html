@@ -1,14 +1,78 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f8f9" media="(prefers-color-scheme: light)">
 <meta name="description" content="Live request inspector for your Doorbell tunnels.">
 <title>Dashboard · Doorbell</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/ds.css">
+
+<style>
+/* ── The overview page's palette, applied to the console ──────────────────
+   Every rule in ds.css already reads these tokens, so the dashboard reskins
+   by redefining them rather than by rewriting markup the module drives. The
+   feed rows, the detail drawer, the badges and the tape all keep the exact
+   class names and behaviour they had.
+
+   Names on the left are ds.css's; values on the right are the design's. */
+:root{
+  --bg:#0b0d10; --bg-raised:#0f1216; --bg-sunken:#0c0f13; --bg-hover:#14181d;
+  --line:#1c2128; --line-strong:#2b323b;
+  --text:#e6e9ee; --text-muted:#9aa3b0; --text-subtle:#6b7482;
+  --accent:#5fd6d9; --accent-ink:#04191b; --accent-fg:#04191b; --accent-hover:#7ee2e4;
+  --accent-dim:#1d4b4d; --accent-wash:rgba(95,214,217,.12);
+  --held:#e6b45c; --held-wash:rgba(230,180,92,.12);
+  --delivered:#6ed69f; --delivered-wash:rgba(110,214,159,.12);
+  --failed:#ec7a6d; --failed-wash:rgba(236,122,109,.12);
+  --info:#5fd6d9; --info-wash:rgba(95,214,217,.12);
+  --warn:#e6b45c; --warn-wash:rgba(230,180,92,.12);
+  --danger:#ec7a6d; --danger-wash:rgba(236,122,109,.12);
+  --font:"Space Grotesk","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --focus:#5fd6d9;
+}
+/* Light is derived from the same hues rather than invented: luminance flipped,
+   accent darkened to #0f7b80 so white-on-accent and accent-on-white both clear
+   AA. The code surfaces stay dark in both — a terminal reads as a terminal. */
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){
+  --bg:#f7f8f9; --bg-raised:#ffffff; --bg-sunken:#f1f3f5; --bg-hover:#eef1f4;
+  --line:#e3e6ea; --line-strong:#c9cfd6;
+  --text:#12161b; --text-muted:#4d5661; --text-subtle:#6b7482;
+  --accent:#0f7b80; --accent-ink:#ffffff; --accent-fg:#ffffff; --accent-hover:#0b6165;
+  --accent-dim:#cfe6e7; --accent-wash:rgba(15,123,128,.10);
+  --held:#8a5a00; --held-wash:rgba(138,90,0,.10);
+  --delivered:#1c7a4d; --delivered-wash:rgba(28,122,77,.10);
+  --failed:#b03024; --failed-wash:rgba(176,48,36,.10);
+  --info:#0f7b80; --info-wash:rgba(15,123,128,.10);
+  --warn:#8a5a00; --warn-wash:rgba(138,90,0,.10);
+  --danger:#b03024; --danger-wash:rgba(176,48,36,.10);
+  --focus:#0f7b80;
+}}
+:root[data-theme="light"]{
+  --bg:#f7f8f9; --bg-raised:#ffffff; --bg-sunken:#f1f3f5; --bg-hover:#eef1f4;
+  --line:#e3e6ea; --line-strong:#c9cfd6;
+  --text:#12161b; --text-muted:#4d5661; --text-subtle:#6b7482;
+  --accent:#0f7b80; --accent-ink:#ffffff; --accent-fg:#ffffff; --accent-hover:#0b6165;
+  --accent-dim:#cfe6e7; --accent-wash:rgba(15,123,128,.10);
+  --held:#8a5a00; --held-wash:rgba(138,90,0,.10);
+  --delivered:#1c7a4d; --delivered-wash:rgba(28,122,77,.10);
+  --failed:#b03024; --failed-wash:rgba(176,48,36,.10);
+  --info:#0f7b80; --info-wash:rgba(15,123,128,.10);
+  --warn:#8a5a00; --warn-wash:rgba(138,90,0,.10);
+  --danger:#b03024; --danger-wash:rgba(176,48,36,.10);
+  --focus:#0f7b80;
+}
+
+/* Structural notes carried over from the design: a tighter row rhythm, the
+   accent ring on the brand mark, and code surfaces that stay dark in both
+   themes so a captured body always reads as captured output. */
+.mark__ring{border-color:var(--accent)}
+.mark__ring::after{background:var(--accent)}
+.snippet,.code,pre.code{background:#0c0f13;border-color:#1a1f26;color:#dfe4ea}
+.tape__track{background:#0c0f13;border-color:#1a1f26}
+</style>
 <script>/* Applied before first paint: rendering the wrong theme for a frame and
    then correcting it is worse than having no control at all. */
 try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
