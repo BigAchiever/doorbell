@@ -6,6 +6,22 @@
 </p>
 
 <p align="center">
+  <sub>Built solo for the <strong>WeMakeDevs × Zerops</strong> challenge</sub>
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/KIYEptODPeo">
+    <img src="https://img.youtube.com/vi/KIYEptODPeo/maxresdefault.jpg" width="760"
+         alt="Demo video: a webhook answered 202 while the tunnel is offline, then delivered in order on reconnect">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/KIYEptODPeo"><strong>▶&nbsp; Watch the 4-minute demo</strong></a><br>
+  <sub>The <code>202</code>, the row sitting in Postgres, and the queue draining in order — on camera.</sub>
+</p>
+
+<p align="center">
   <a href="#verify-it-yourself-in-30-seconds">Verify it live</a> ·
   <a href="#what-it-guarantees">Guarantees</a> ·
   <a href="#architecture">Architecture</a> ·
@@ -97,11 +113,6 @@ public and the next visitor reads your payloads and can replay them.
 The counters and timeline on the overview page stay public, because they only
 carry tunnel names and timestamps. [Security model](#security-model) has the
 full table.
-
-<!-- DEMO VIDEO — drop the link here once recorded, as its own section:
-## Demo video
-[![Doorbell in 2 minutes](docs/hero.png)](https://youtu.be/VIDEO_ID)
--->
 
 ---
 
