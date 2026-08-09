@@ -39,16 +39,26 @@ try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.d
     <p class="gate__note">Remembered on this device for 7 days, in a cookie that is
        HttpOnly, SameSite=Lax and - behind the Zerops balancer - Secure.</p>
 
+    <!-- Most people who reach this page are not the operator, so answer them
+         first. Pointing a visitor at an environment variable inside an account
+         they have no access to is a dead end, and that is what this said before. -->
     <div class="gate__more">
       <section>
-        <h2>Don't have it?</h2>
-        <p>It is <code translate="no">DOORBELL_ADMIN_TOKEN</code>, in the gw service's
-           environment variables in the Zerops dashboard. Not the token your CLI
-           passes - that one is <code translate="no">DOORBELL_CLIENT_TOKEN</code>, and it
-           opens tunnels without opening this.</p>
+        <h2>Don't have one?</h2>
+        <p>Then you don't need one. Nothing this project claims depends on this
+           view: the <a href="/">overview page</a> carries the live counters and the
+           timeline, and two <code translate="no">curl</code> commands at the top of the
+           <a href="https://github.com/BigAchiever/Doorbell#verify-it-yourself-in-30-seconds"
+              rel="noopener">README</a> will hold a real request in front of you.</p>
+        <p>Only this page is gated, and only because it serves captured request
+           bodies and can re-send them.</p>
       </section>
       <section>
-        <h2>Prefer the API?</h2>
+        <h2>If you run this gateway</h2>
+        <p>It is <code translate="no">DOORBELL_ADMIN_TOKEN</code>, in the gw service's
+           environment variables. Not the token your CLI passes - that one is
+           <code translate="no">DOORBELL_CLIENT_TOKEN</code>, and it opens tunnels
+           without opening this.</p>
         <pre class="code" translate="no">curl -H "Authorization: Bearer $TOKEN" \
   https://your-gateway/api/requests</pre>
       </section>
