@@ -93,10 +93,10 @@ try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.d
       </figure>
       <figure class="pane pane--good">
         <figcaption class="pane__cap"><span class="pane__dot" aria-hidden="true"></span>Doorbell holds it</figcaption>
-        <pre class="pane__body" translate="no"><span class="t-cmd">doorbell 3000</span>     <span class="t-arw">→</span>  <span class="t-url">https://…/t/shop/</span>
+        <pre class="pane__body" translate="no"><span class="t-cmd">doorbell -name shop 3000</span><span class="t-arw">→</span>  <span class="t-url">https://…/t/shop/</span>
 <span class="t-cmd">^C</span>                <span class="t-arw">→</span>  <span class="t-dim">laptop closed</span>
 <span class="t-cmd">3 callbacks arrive</span><span class="t-arw">→</span>  <span class="t-held">202 Accepted, stored</span>
-<span class="t-cmd">doorbell 3000</span>     <span class="t-arw">→</span>  <span class="t-ok">all 3 delivered, in order</span></pre>
+<span class="t-cmd">doorbell -name shop 3000</span><span class="t-arw">→</span>  <span class="t-ok">all 3 delivered, in order</span></pre>
       </figure>
     </div>
     <p class="sec__foot">Same URL both times. That matters more than it looks: a sender you
@@ -237,10 +237,16 @@ try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.d
       </figcaption>
       <pre class="term__body" id="cmd" translate="no">$ go install github.com/BigAchiever/Doorbell/cmd/doorbell@latest
 $ export DOORBELL_GATEWAY=<span id="host">…</span>
-$ doorbell 3000</pre>
+$ doorbell -name pick-a-name 3000</pre>
     </figure>
 
     <div class="notes">
+      <div class="note-block">
+        <h3>Name it, or nothing is held</h3>
+        <p>Only a <em>reserved</em> name survives a disconnect. <code translate="no">-name</code> reserves
+           one; without it you get a random name that is dropped when you leave, and a webhook
+           sent afterwards is a genuine <code translate="no">404</code>. Flags go before the port.</p>
+      </div>
       <div class="note-block">
         <h3>No Go?</h3>
         <p>Prebuilt binaries for macOS, Linux and Windows are built by

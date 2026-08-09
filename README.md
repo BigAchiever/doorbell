@@ -61,15 +61,20 @@ you reconnect, you need a tunnel of your own. Still no account or token:
 ```bash
 go install github.com/BigAchiever/Doorbell/cmd/doorbell@latest
 export DOORBELL_GATEWAY=2a00:1ed0:1100::160:0:2ad0
-doorbell 3000 -name pick-something-unused
+doorbell -name pick-something-unused 3000
 ```
+
+Pick a name nobody else is using. `shop` is the one this page's `curl` examples
+rely on, so leave that one alone — the gateway has no client token set, which
+means anyone can claim any unclaimed name, and taking `shop` would drain the
+mailbox the demo above depends on.
 
 Send a request and it arrives. Hit `Ctrl-C`, send three more, and each one comes
 back `202`. Start the CLI again and they drain oldest first, each showing how
 long it waited:
 
 ```
-$ doorbell 3000 -name demo
+$ doorbell -name demo 3000
   https://gw-2ad0-3000.prg1.zerops.app/t/demo/
   → forwarding to 127.0.0.1:3000
 
@@ -331,8 +336,12 @@ There are prebuilt binaries for macOS, Linux and Windows from `make release`.
 
 ```bash
 export DOORBELL_GATEWAY=<the control address from your overview page>
-doorbell 3000 -name shop
+doorbell -name shop 3000
 ```
+
+Flags go before the port. Go's `flag` package stops parsing at the first
+non-flag argument, so `doorbell 3000 -name shop` prints the usage banner instead
+of connecting.
 
 It prints your public URL. Give that to whoever needs to call you once, and it
 keeps working across restarts.
