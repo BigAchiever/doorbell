@@ -1,434 +1,779 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0d10" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f7f8f9" media="(prefers-color-scheme: light)">
 <meta name="description" content="A tunnel that doesn't lose your webhooks. Expose localhost on infrastructure you own, deployed from one YAML file.">
 <title>Doorbell - A Tunnel That Doesn't Lose Your Webhooks</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/ds.css">
 <script>/* Applied before first paint: rendering the wrong theme for a frame and
    then correcting it is worse than having no control at all. */
 try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 
-<a class="skip-link" href="#main">Skip to Content</a>
+<style>
+/* ── The landing page owns its own visual system ──────────────────────────
+   ds.css still supplies the toast and the .tape__* classes app.js emits, both
+   of which are restyled at the bottom of this block onto the tokens below.
+   Everything else here is self-contained, so the dashboard and this page can
+   move independently. */
+:root{
+  --db-bg:#0b0d10; --db-bg-1:#0f1216; --db-bg-2:#14181d;
+  --db-line:#1c2128; --db-line-2:#2b323b;
+  --db-fg:#e6e9ee; --db-fg-2:#9aa3b0; --db-fg-3:#6b7482;
+  --db-accent:#5fd6d9; --db-accent-ink:#04191b; --db-accent-soft:rgba(95,214,217,.12);
+  --db-ok:#6ed69f; --db-held:#e6b45c; --db-fail:#ec7a6d;
+  --db-code-bg:#0c0f13; --db-code-line:#1a1f26; --db-code-fg:#dfe4ea; --db-code-dim:#4b5361;
+  --db-grid:rgba(255,255,255,.032); --db-band:rgba(255,255,255,.07); --db-band-edge:rgba(255,255,255,.14);
+  --db-shadow:0 12px 30px rgba(0,0,0,.35);
+}
+/* The design is authored dark. Light is derived from it rather than invented:
+   same hues, same structure, luminance flipped, and the accent darkened so
+   white-on-accent and accent-on-white both clear AA. */
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){
+  --db-bg:#f7f8f9; --db-bg-1:#ffffff; --db-bg-2:#f1f3f5;
+  --db-line:#e3e6ea; --db-line-2:#c9cfd6;
+  --db-fg:#12161b; --db-fg-2:#4d5661; --db-fg-3:#6b7482;
+  --db-accent:#0f7b80; --db-accent-ink:#ffffff; --db-accent-soft:rgba(15,123,128,.10);
+  --db-ok:#1c7a4d; --db-held:#8a5a00; --db-fail:#b03024;
+  --db-code-bg:#0c0f13; --db-code-line:#1a1f26; --db-code-fg:#dfe4ea; --db-code-dim:#4b5361;
+  --db-grid:rgba(0,0,0,.035); --db-band:rgba(0,0,0,.06); --db-band-edge:rgba(0,0,0,.14);
+  --db-shadow:0 12px 30px rgba(0,0,0,.12);
+}}
+:root[data-theme="light"]{
+  --db-bg:#f7f8f9; --db-bg-1:#ffffff; --db-bg-2:#f1f3f5;
+  --db-line:#e3e6ea; --db-line-2:#c9cfd6;
+  --db-fg:#12161b; --db-fg-2:#4d5661; --db-fg-3:#6b7482;
+  --db-accent:#0f7b80; --db-accent-ink:#ffffff; --db-accent-soft:rgba(15,123,128,.10);
+  --db-ok:#1c7a4d; --db-held:#8a5a00; --db-fail:#b03024;
+  --db-code-bg:#0c0f13; --db-code-line:#1a1f26; --db-code-fg:#dfe4ea; --db-code-dim:#4b5361;
+  --db-grid:rgba(0,0,0,.035); --db-band:rgba(0,0,0,.06); --db-band-edge:rgba(0,0,0,.14);
+  --db-shadow:0 12px 30px rgba(0,0,0,.12);
+}
 
-<!-- One route, one scroll. There is no separate "overview" entry, because this
-     page is the overview. -->
-<header class="sitenav">
-  <a class="mark" href="/">
-    <span class="mark__ring" aria-hidden="true"></span>
-    <strong>Doorbell</strong>
-  </a>
-  <div class="spacer"></div>
-  <nav class="sitenav__links" aria-label="Sections">
-    <a href="#how">How it works</a>
-    <a href="#guarantees">Guarantees</a>
-    <a href="#install">Install</a>
-    <a href="#zerops">Why Zerops</a>
-  </nav>
-  <button type="button" class="btn btn--icon btn--ghost" id="themeToggle"><span data-icon aria-hidden="true">☾</span></button>
-  <a class="btn btn--primary" href="/dashboard">Dashboard</a>
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{margin:0;background:var(--db-bg);color:var(--db-fg);
+  font-family:'Space Grotesk','Helvetica Neue',Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+section[id]{scroll-margin-top:112px}
+:focus-visible{outline:2px solid var(--db-accent);outline-offset:3px;border-radius:4px}
+::selection{background:var(--db-accent);color:var(--db-accent-ink)}
+.db-mono,code,kbd,pre{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+
+@keyframes db-pulse{0%{transform:scale(1);opacity:.55}70%{transform:scale(2.6);opacity:0}100%{transform:scale(2.6);opacity:0}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}[data-anim]{animation:none!important;transition:none!important}}
+
+.db-skip{position:absolute;left:16px;top:-64px;z-index:99;display:inline-flex;align-items:center;height:40px;padding:0 16px;border-radius:8px;background:var(--db-fg);color:var(--db-bg);font-weight:600;font-size:14px;text-decoration:none;transition:top .18s}
+.db-skip:focus{top:16px}
+.db-wrap{max-width:1180px;margin:0 auto;padding:0 clamp(18px,5vw,56px)}
+
+/* ── header ── */
+.db-header{position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--db-bg) 88%, transparent);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--db-line)}
+.db-nav{max-width:1180px;margin:0 auto;padding:14px clamp(18px,5vw,56px) 0;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.db-mark{display:inline-flex;align-items:center;gap:10px;text-decoration:none;color:var(--db-fg);order:1;margin-right:auto}
+.db-mark strong{font-size:16.5px;letter-spacing:-.015em;font-weight:600}
+.db-ring{position:relative;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--db-accent);display:inline-block}
+.db-ring::after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--db-accent)}
+.db-navlinks{order:3;flex:1 1 100%;display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none;margin-top:12px;padding:2px 0 0;border-top:1px solid var(--db-line)}
+.db-navlinks::-webkit-scrollbar{height:0}
+.db-navlinks a{position:relative;white-space:nowrap;text-decoration:none;font-size:14px;font-weight:500;padding:12px;color:var(--db-fg-2);transition:color .16s}
+.db-navlinks a:hover{color:var(--db-fg)}
+.db-navtools{order:2;display:flex;align-items:center;gap:10px}
+.db-icon{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:8px;background:transparent;border:1px solid var(--db-line-2);color:var(--db-fg-2);cursor:pointer;font-size:14px;line-height:1;transition:color .16s,border-color .16s,background .16s}
+.db-icon:hover{color:var(--db-fg);border-color:var(--db-fg-3);background:var(--db-bg-1)}
+.db-ghost{display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:8px;border:1px solid var(--db-line-2);background:var(--db-bg-1);color:var(--db-fg);text-decoration:none;font-size:14px;font-weight:600;transition:border-color .16s,background .16s}
+.db-ghost:hover{border-color:var(--db-accent);background:var(--db-accent-soft)}
+
+/* ── hero ── */
+.db-hero{position:relative;padding:56px 0 64px;overflow:hidden;border-bottom:1px solid var(--db-line)}
+.db-hero__grid{position:absolute;inset:0;background-image:linear-gradient(to right,var(--db-grid) 1px,transparent 1px);background-size:96px 100%;background-position:center top;mask-image:linear-gradient(to bottom,#000 0%,#000 55%,transparent 100%);-webkit-mask-image:linear-gradient(to bottom,#000 0%,#000 55%,transparent 100%)}
+.db-tag{display:inline-flex;align-items:center;gap:9px;margin:0;padding:6px 12px 6px 10px;border:1px solid var(--db-line-2);border-radius:999px;background:var(--db-bg-1);font-size:11.5px;letter-spacing:.04em;color:var(--db-fg-2);white-space:nowrap}
+.db-dot-ok{position:relative;width:7px;height:7px;border-radius:50%;background:var(--db-ok);display:inline-block}
+.db-dot-ok span{position:absolute;inset:0;border-radius:50%;background:var(--db-ok);animation:db-pulse 2.6s ease-out infinite}
+.db-h1{margin:26px 0 0;font-size:clamp(38px,6.6vw,74px);line-height:.98;letter-spacing:-.035em;font-weight:600;max-width:16ch;text-wrap:balance}
+.db-lede{margin:26px 0 0;font-size:clamp(16.5px,1.6vw,19px);line-height:1.62;color:var(--db-fg-2);max-width:64ch;text-wrap:pretty}
+.db-lede strong{color:var(--db-fg);font-weight:600}
+.db-cta{margin:34px 0 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.db-btn{display:inline-flex;align-items:center;gap:9px;height:50px;padding:0 22px;border-radius:9px;background:var(--db-accent);border:1px solid var(--db-accent);color:var(--db-accent-ink);text-decoration:none;font-size:15.5px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;transition:transform .16s,filter .16s}
+.db-btn:hover{transform:translateY(-1px);filter:brightness(1.06);color:var(--db-accent-ink)}
+.db-btn2{display:inline-flex;align-items:center;height:50px;padding:0 20px;border-radius:9px;border:1px solid var(--db-line-2);background:transparent;color:var(--db-fg);text-decoration:none;font-size:15.5px;font-weight:600;white-space:nowrap;transition:border-color .16s,background .16s}
+.db-btn2:hover{border-color:var(--db-fg-3);background:var(--db-bg-1);color:var(--db-fg)}
+.db-note{font-size:12px;color:var(--db-fg-3);letter-spacing:.02em}
+
+/* ── live panel ── */
+.db-panel{margin:46px 0 0;border:1px solid var(--db-line);border-radius:14px;background:var(--db-bg-1);overflow:hidden}
+.db-panel__head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--db-line)}
+.db-panel__head h2{margin:0;font-size:14.5px;font-weight:600;letter-spacing:-.01em;color:var(--db-fg)}
+.db-live{margin:0 0 0 auto;display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--db-fg-2)}
+.db-tapebox{padding:18px 18px 12px}
+.db-tapetrack{position:relative;height:84px;border-radius:9px;background:var(--db-code-bg);border:1px solid var(--db-code-line);overflow:hidden}
+.db-tapetrack::before{content:"";position:absolute;inset:0;background-image:linear-gradient(to right,rgba(255,255,255,.045) 1px,transparent 1px);background-size:calc(100% / 6) 100%}
+.db-axis{display:flex;justify-content:space-between;margin:8px 2px 0;font-size:10.5px;letter-spacing:.06em;color:var(--db-fg-3)}
+.db-ledger{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));border-top:1px solid var(--db-line);margin-left:-1px}
+.db-cell{padding:16px 18px;border-left:1px solid var(--db-line);min-width:0}
+.db-cell__k{margin:0;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--db-fg-3)}
+.db-cell__v{margin:8px 0 0;font-size:clamp(19px,2.2vw,25px);font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.02em;line-height:1.1;overflow-wrap:anywhere;color:var(--db-fg)}
+.db-cell__v.v-accent{color:var(--db-accent)}
+.db-cell__v.v-held{color:var(--db-held)}
+.db-cell__v.v-ok{color:var(--db-ok)}
+.db-cell__v.v-fail{color:var(--db-fail)}
+.db-caption{margin:14px 2px 0;font-size:13.5px;line-height:1.55;color:var(--db-fg-3);max-width:70ch;text-wrap:pretty}
+
+/* ── proof block ── */
+.db-proof{margin:34px 0 0;border:1px solid var(--db-line);border-left:2px solid var(--db-accent);border-radius:0 14px 14px 0;background:var(--db-bg-1);padding:26px clamp(20px,3vw,30px)}
+.db-proof h2{margin:0;font-size:clamp(21px,2.4vw,27px);line-height:1.15;letter-spacing:-.02em;font-weight:600;text-wrap:balance}
+.db-proof p{margin:12px 0 0;font-size:15.5px;line-height:1.62;color:var(--db-fg-2);max-width:74ch;text-wrap:pretty}
+.db-proof ol{margin:20px 0 0;padding:0;list-style:none;display:grid;gap:16px;counter-reset:step}
+.db-proof li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:0 14px;align-items:start}
+.db-proof li::before{counter-increment:step;content:counter(step);width:26px;height:26px;border-radius:50%;border:1px solid var(--db-line-2);background:var(--db-bg);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:var(--db-fg-2)}
+.db-proof li > div > p:first-child{margin:3px 0 0}
+
+/* ── generic section ── */
+.db-sec{border-bottom:1px solid var(--db-line);padding:clamp(64px,8vw,110px) 0}
+.db-sec--last{border-bottom:0}
+.db-secgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px 0}
+.db-num{margin:0;font-size:12px;letter-spacing:.14em;color:var(--db-accent);padding-top:8px}
+.db-h2{margin:0;font-size:clamp(27px,3.6vw,40px);line-height:1.06;letter-spacing:-.025em;font-weight:600;max-width:20ch;text-wrap:balance}
+.db-sub{margin:16px 0 0;font-size:clamp(16px,1.5vw,18.5px);line-height:1.6;color:var(--db-fg-2);max-width:64ch;text-wrap:pretty}
+.db-claim{margin:18px 0 0;font-size:clamp(17px,1.7vw,20px);line-height:1.55;color:var(--db-fg);max-width:62ch;text-wrap:pretty;font-weight:500;letter-spacing:-.012em}
+.db-quote{margin:22px 0 0;font-size:15px;line-height:1.62;color:var(--db-fg-2);max-width:74ch;text-wrap:pretty;padding-left:14px;border-left:2px solid var(--db-line-2)}
+.db-quote--accent{border-left-color:var(--db-accent);font-size:15.5px;margin-top:26px}
+.db-quote strong{color:var(--db-fg);font-weight:600}
+.db-h3{margin:clamp(48px,6vw,80px) 0 0;font-size:clamp(20px,2.2vw,25px);line-height:1.2;letter-spacing:-.02em;font-weight:600}
+
+.db-chips{margin:28px 0 0;display:flex;flex-wrap:wrap;gap:7px}
+.db-chips span{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:var(--db-fg-2);border:1px solid var(--db-line);border-radius:6px;padding:5px 10px;background:var(--db-bg-1)}
+.db-chips span:last-child{color:var(--db-fg-3);border-style:dashed;border-color:var(--db-line-2);background:transparent}
+
+/* ── code panes ── */
+.db-panes{margin:44px 0 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.db-pane{margin:0;border:1px solid var(--db-line);border-radius:12px;overflow:hidden;background:var(--db-code-bg)}
+.db-pane--good{box-shadow:inset 2px 0 0 var(--db-accent)}
+.db-pane figcaption,.db-pane__cap{display:flex;align-items:center;gap:9px;padding:12px 16px;border-bottom:1px solid var(--db-code-line);font-size:13px;font-weight:600;color:#8a929d}
+.db-pane--good .db-pane__cap{color:var(--db-code-fg)}
+.db-pane__dot{width:7px;height:7px;border-radius:50%;background:#5a6270}
+.db-pane--good .db-pane__dot{background:var(--db-accent)}
+.db-pane__body{padding:16px;display:grid;grid-template-columns:max-content 20px minmax(0,1fr);align-items:baseline;gap:11px 0;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12.5px;line-height:1.4}
+.db-pane__body .c{color:var(--db-code-fg)}
+.db-pane__body .a{color:var(--db-code-dim);text-align:center}
+.db-pane__body .d{color:#6b7482}
+.db-pane__body .u{color:var(--db-accent);overflow-wrap:anywhere}
+.db-pane__body .h{color:var(--db-held)}
+.db-pane__body .o{color:var(--db-ok)}
+.db-pane__body .f{color:var(--db-fail)}
+
+/* ── matrix ── */
+.db-matrixwrap{margin:26px 0 0;overflow-x:auto;border:1px solid var(--db-line);border-radius:12px;background:var(--db-bg-1)}
+.db-matrix{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}
+.db-matrix th[scope=col]{padding:15px 12px;font-size:13px;font-weight:500;color:var(--db-fg-2);border-bottom:1px solid var(--db-line-2);white-space:nowrap}
+.db-matrix th.db-first{text-align:left;padding:15px 18px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--db-fg-3);font-weight:400;background:var(--db-bg-1);min-width:250px}
+.db-matrix th.db-us{color:var(--db-accent);background:var(--db-accent-soft);border-bottom-color:var(--db-accent);font-weight:600}
+.db-matrix th[scope=row]{text-align:left;font-weight:400;padding:15px 18px;color:var(--db-fg);border-top:1px solid var(--db-line);background:var(--db-bg-1);text-wrap:pretty}
+.db-matrix td{padding:13px 12px;text-align:center;border-top:1px solid var(--db-line);vertical-align:middle}
+.db-matrix td.db-us{background:var(--db-accent-soft)}
+.db-no{color:var(--db-fg-3);font-size:15px;display:block}
+.db-yes{color:var(--db-fg-2);font-size:15px;display:block}
+.db-us .db-yes{color:var(--db-accent)}
+.db-hint{display:block;margin-top:4px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;color:var(--db-fg-3)}
+.db-us .db-hint{color:var(--db-fg-2)}
+@media (max-width:939px){.db-first{position:sticky;left:0;z-index:2}}
+
+/* ── guarantee list ── */
+.db-list{margin:40px 0 0;padding:0;list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:0 40px;border-top:1px solid var(--db-line)}
+.db-list li{padding:22px 0;border-bottom:1px solid var(--db-line);display:grid;grid-template-columns:38px minmax(0,1fr);gap:0 4px;transition:background .18s}
+.db-list li:hover{background:var(--db-bg-1)}
+.db-list .n{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:var(--db-fg-3);letter-spacing:.1em;padding-top:4px}
+.db-list h3{margin:0;font-size:16.5px;font-weight:600;letter-spacing:-.012em}
+.db-list p{margin:7px 0 0;font-size:14.5px;line-height:1.58;color:var(--db-fg-2);text-wrap:pretty}
+code.db-tok{font-size:12.5px;background:var(--db-bg-2);border:1px solid var(--db-line);border-radius:4px;padding:1px 5px;color:var(--db-fg)}
+code.db-tok--ok{color:var(--db-ok)} code.db-tok--fail{color:var(--db-fail)} code.db-tok--accent{color:var(--db-accent);overflow-wrap:anywhere}
+kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-line-2);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--db-fg)}
+
+/* ── terminal ── */
+.db-term{margin:30px 0 0;border:1px solid var(--db-line);border-radius:12px;overflow:hidden;background:var(--db-code-bg)}
+.db-term__cap{display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-bottom:1px solid var(--db-code-line);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:#6b7482}
+.db-copy{margin-left:auto;display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 12px;border-radius:7px;border:1px solid #262c34;background:#151a20;color:var(--db-code-fg);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;transition:border-color .16s,background .16s}
+.db-copy:hover{border-color:var(--db-accent);background:#1a2126}
+.db-term__body{margin:0;padding:18px 16px;font-size:13px;line-height:1.85;color:var(--db-code-fg);white-space:pre;overflow-x:auto}
+.db-term__body .p{color:var(--db-code-dim);user-select:none}
+.db-term__body .v{color:var(--db-accent)}
+
+.db-notes{margin:20px 0 0;display:grid;grid-template-columns:1fr;gap:1px;background:var(--db-line);border:1px solid var(--db-line);border-radius:12px;overflow:hidden}
+.db-notes > div{background:var(--db-bg-1);padding:20px}
+.db-notes h3{margin:0;font-size:14px;font-weight:600;letter-spacing:-.01em}
+.db-notes p{margin:8px 0 0;font-size:14.5px;line-height:1.58;color:var(--db-fg-2);text-wrap:pretty}
+
+/* ── requirement rows ── */
+.db-reqs{margin:40px 0 0;border:1px solid var(--db-line);border-radius:12px;overflow:hidden;background:var(--db-bg-1)}
+.db-reqhead{display:none;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,1fr);background:var(--db-bg-2);border-bottom:1px solid var(--db-line-2);font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--db-fg-3)}
+.db-reqhead span{padding:12px 24px}
+.db-reqhead span+span{border-left:1px solid var(--db-line)}
+.db-reqhead .on{color:var(--db-accent)}
+.db-reqrow{display:grid;grid-template-columns:minmax(0,1fr)}
+.db-reqrow+.db-reqrow{border-top:1px solid var(--db-line)}
+.db-reqrow__h{padding:22px 24px;display:grid;grid-template-columns:34px minmax(0,1fr);gap:0 4px}
+.db-reqrow__h .n{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:var(--db-fg-3);letter-spacing:.1em;padding-top:4px}
+.db-reqrow__h h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.012em}
+.db-reqrow__h p{margin:6px 0 0;font-size:14px;line-height:1.55;color:var(--db-fg-3);text-wrap:pretty}
+.db-cellwrap{padding:0 24px 18px}
+.db-cellwrap--on{background:var(--db-accent-soft)}
+.db-mlabel{margin:0 0 8px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--db-fg-3);padding-top:14px}
+.db-cellwrap--on .db-mlabel{color:var(--db-accent)}
+.db-cellwrap p:last-child{margin:0;display:flex;gap:10px;font-size:14.5px;line-height:1.55;color:var(--db-fg-2);text-wrap:pretty}
+.db-cellwrap--on p:last-child{color:var(--db-fg)}
+.db-tick{color:var(--db-accent);flex:none}
+.db-cross{color:var(--db-fg-3);flex:none}
+
+.db-qa{margin:24px 0 0;display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+.db-qa__main{border:1px solid var(--db-line);border-left:2px solid var(--db-accent);border-radius:0 12px 12px 0;padding:24px;background:var(--db-bg-1)}
+.db-qa__main h3{margin:0;font-size:18px;font-weight:600;letter-spacing:-.018em;text-wrap:pretty}
+.db-qa__main p{margin:14px 0 0;font-size:15px;line-height:1.62;color:var(--db-fg-2);text-wrap:pretty}
+.db-qa__main p strong{color:var(--db-fg);font-weight:600}
+.db-qa__aside{border:1px solid var(--db-line);border-radius:12px;padding:24px}
+.db-qa__aside h3{margin:0;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--db-held);font-weight:400}
+.db-qa__aside p{margin:12px 0 0;font-size:15px;line-height:1.62;color:var(--db-fg-2);text-wrap:pretty}
+
+/* ── steps ── */
+.db-steps{margin:34px 0 0;padding:0;list-style:none;display:grid}
+.db-steps li{display:grid;grid-template-columns:34px minmax(0,1fr);gap:0 16px;padding:0 0 26px;position:relative}
+.db-steps li:last-child{padding-bottom:0}
+.db-steps li:not(:last-child)::before{content:"";position:absolute;left:16px;top:30px;bottom:0;width:1px;background:var(--db-line)}
+.db-steps .b{position:relative;z-index:1;width:32px;height:32px;border-radius:50%;border:1px solid var(--db-line-2);background:var(--db-bg);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:var(--db-fg-2)}
+.db-steps li:last-child .b{border-color:var(--db-accent);background:var(--db-accent-soft);color:var(--db-accent)}
+.db-steps p{margin:5px 0 0;font-size:15.5px;line-height:1.6;color:var(--db-fg-2);text-wrap:pretty}
+
+/* ── footer ── */
+.db-foot{border-top:1px solid var(--db-line);background:var(--db-bg-1)}
+.db-foot__in{max-width:1180px;margin:0 auto;padding:32px clamp(18px,5vw,56px);display:flex;flex-direction:column;gap:20px}
+.db-foot__in p{margin:0}
+.db-foot__mark{display:inline-flex;align-items:center;gap:10px;color:var(--db-fg)}
+.db-foot__mark strong{font-size:15px;font-weight:600;letter-spacing:-.015em}
+.db-foot__meta{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:11.5px;color:var(--db-fg-3);letter-spacing:.02em;text-wrap:pretty}
+.db-foot nav{margin-left:auto;display:flex;gap:22px;flex-wrap:wrap}
+.db-foot nav a{font-size:14px;color:var(--db-fg-2);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px;transition:color .16s,border-color .16s}
+.db-foot nav a:hover{color:var(--db-fg);border-color:var(--db-accent)}
+
+@media (min-width:940px){
+  .db-navlinks{flex:0 1 auto;order:2;overflow:visible;padding:0;border-top:0;margin:0}
+  .db-nav{padding-top:0;padding-bottom:0;height:72px;flex-wrap:nowrap}
+  .db-secgrid{grid-template-columns:104px minmax(0,1fr);gap:0 32px}
+  .db-reqrow{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,1fr);align-items:stretch}
+  .db-reqhead{display:grid}
+  .db-mlabel{display:none}
+  .db-cellwrap{border-left:1px solid var(--db-line);padding:22px 24px}
+  .db-qa{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}
+  .db-notes{grid-template-columns:1fr 1fr}
+  .db-foot__in{flex-direction:row;align-items:center}
+  .db-hero{padding-top:104px;padding-bottom:96px}
+}
+
+/* ── app.js-owned classes, re-tokenised for this page ── */
+.tape__gap{position:absolute;top:0;bottom:0;background:var(--db-band);border-left:1px solid var(--db-band-edge);border-right:1px solid var(--db-band-edge)}
+.tape__gapLabel{position:absolute;top:6px;left:6px;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:10.5px;color:var(--db-held);white-space:nowrap;pointer-events:none}
+.tape__gap--narrow .tape__gapLabel{left:auto;right:calc(100% + 6px)}
+.tape__gap--labelAfter .tape__gapLabel{right:auto;left:calc(100% + 6px)}
+.tape__tick{position:absolute;bottom:0;width:3px;height:26px;border-radius:2px 2px 0 0;background:var(--db-held)}
+.tape__tick--failed{background:var(--db-fail)}
+.tape__quiet{position:absolute;inset:0;margin:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 20px;font-size:13.5px;color:var(--db-fg-3);text-wrap:pretty}
+.dot{position:relative;width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--db-fg-3)}
+.dot--live{background:var(--db-ok)}
+.dot--down{background:var(--db-fail)}
+</style>
+
+<a class="db-skip" href="#main">Skip to content</a>
+
+<header class="db-header">
+  <div class="db-nav">
+    <a class="db-mark" href="#main">
+      <span class="db-ring" aria-hidden="true"></span>
+      <strong>Doorbell</strong>
+    </a>
+    <nav class="db-navlinks" aria-label="Sections">
+      <a href="#verify">Verify it live</a>
+      <a href="#how">How it works</a>
+      <a href="#guarantees">Guarantees</a>
+      <a href="#install">Install</a>
+      <a href="#zerops">Why Zerops</a>
+      <a href="#deploy">Deploy</a>
+    </nav>
+    <div class="db-navtools">
+      <button type="button" class="db-icon" id="themeToggle"><span data-icon aria-hidden="true">☾</span></button>
+      <a class="db-ghost" href="/dashboard">Dashboard</a>
+    </div>
+  </div>
 </header>
 
 <main id="main">
-  <section class="hero">
-    <div class="hero__glow" aria-hidden="true"></div>
+  <section class="db-hero">
+    <div class="db-hero__grid" aria-hidden="true"></div>
+    <div class="db-wrap" style="position:relative">
+      <p class="db-tag db-mono">
+        <span class="db-dot-ok" aria-hidden="true"><span data-anim="true"></span></span>
+        Self-hosted · running on Zerops
+      </p>
 
-    <p class="tag"><span class="tag__dot" aria-hidden="true"></span>Self-hosted · running on Zerops</p>
-    <h1 class="hero__title">A tunnel that doesn't lose your webhooks.</h1>
-    <p class="hero__lede">A whole tunnel network - gateway, database, queue and TLS - deployed
-       into <strong>your own</strong> Zerops account from one YAML file. Nobody else's servers sit
-       in the path of your traffic. Which is exactly why it can hold what arrives while your
-       laptop is shut, and deliver it in order when you come back.</p>
+      <h1 class="db-h1">A tunnel that doesn't lose your webhooks.</h1>
 
-    <p class="hero__cta">
-      <a class="btn btn--primary btn--lg" href="/dashboard">Open the live dashboard</a>
-      <a class="btn btn--lg" href="#install">Install the CLI</a>
-      <span class="hero__note mono">MIT · one binary · no account</span>
-    </p>
+      <p class="db-lede">A whole tunnel network - gateway, database, queue and TLS - deployed
+        into <strong>your own</strong> Zerops account from one YAML file. Nobody else's servers sit
+        in the path of your traffic. Which is exactly why it can hold what arrives while your
+        laptop is shut, and deliver it in order when you come back.</p>
 
-    <!-- The same tape the dashboard draws, from the same code. The claim above
-         is abstract; this is the gateway actually running, right now. -->
-    <section class="panel" aria-labelledby="panelTitle">
-      <div class="panel__head">
-        <h2 id="panelTitle">This gateway · last 30 minutes</h2>
-        <p class="live"><span class="dot" id="dot" aria-hidden="true"></span>
-          <span id="liveLabel">Live</span></p>
-      </div>
-      <div class="tape__track" id="tapeTrack"></div>
-      <div class="tape__axis" aria-hidden="true">
-        <span>−30m</span><span>−20m</span><span>−10m</span><span>now</span>
-      </div>
-      <div class="ledger" id="stats" aria-live="polite" aria-label="Gateway status">
-        <div class="ledger__cell"><p class="ledger__label">Mode</p><p class="ledger__value v-accent" id="s-mode">…</p></div>
-        <div class="ledger__cell"><p class="ledger__label">Live tunnels</p><p class="ledger__value" id="s-tunnels">…</p></div>
-        <div class="ledger__cell"><p class="ledger__label">Held right now</p><p class="ledger__value v-held" id="s-held">…</p></div>
-        <div class="ledger__cell"><p class="ledger__label">Mailbox</p><p class="ledger__value" id="s-mailbox">…</p></div>
-      </div>
-    </section>
-    <p class="hero__caption">Shaded bands are minutes a tunnel was disconnected. Amber ticks
-       are requests held during them.</p>
-  </section>
+      <p class="db-cta">
+        <a class="db-btn" href="#verify">Verify it yourself<span aria-hidden="true">→</span></a>
+        <a class="db-btn2" href="/dashboard">Open the live dashboard</a>
+        <span class="db-note db-mono">MIT · one binary · no account</span>
+      </p>
 
-  <section class="sec" id="how">
-    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">01</span>What a tunnel is actually for</h2>
-    <p class="sec__lede">Something on the internet needs to POST to code on your laptop, and your
-       laptop has no public address. So you open a tunnel - and then you close the lid.</p>
+      <!-- The same tape the dashboard draws, from the same code. The claim above
+           is abstract; this is the gateway actually running, right now. -->
+      <section class="db-panel" aria-labelledby="panelTitle">
+        <div class="db-panel__head">
+          <h2 id="panelTitle">This gateway · last 30 minutes</h2>
+          <p class="db-live db-mono" aria-live="polite">
+            <span class="dot" id="dot" aria-hidden="true"></span>
+            <span id="liveLabel">Live</span>
+          </p>
+        </div>
+        <div class="db-tapebox">
+          <div class="db-tapetrack" id="tapeTrack" role="img" aria-label="Timeline of tunnel outages in the last 30 minutes"></div>
+          <div class="db-axis db-mono" aria-hidden="true">
+            <span>−30m</span><span>−20m</span><span>−10m</span><span>now</span>
+          </div>
+        </div>
+        <div class="db-ledger" id="stats" aria-live="polite" aria-label="Gateway status">
+          <div class="db-cell"><p class="db-cell__k db-mono">Mode</p><p class="db-cell__v db-mono v-accent" id="s-mode">…</p></div>
+          <div class="db-cell"><p class="db-cell__k db-mono">Live tunnels</p><p class="db-cell__v db-mono" id="s-tunnels">…</p></div>
+          <div class="db-cell"><p class="db-cell__k db-mono">Held right now</p><p class="db-cell__v db-mono v-held" id="s-held">…</p></div>
+          <div class="db-cell"><p class="db-cell__k db-mono">Mailbox</p><p class="db-cell__v db-mono" id="s-mailbox">…</p></div>
+        </div>
+      </section>
+      <p class="db-caption">Shaded bands are minutes a tunnel was disconnected. Amber ticks
+        are requests held during them.</p>
 
-    <p class="senders" aria-label="Examples of senders">
-      <span>Stripe</span><span>GitHub</span><span>GitLab CI</span><span>Slack</span>
-      <span>Twilio</span><span>Shopify</span><span>Auth0</span><span>anything with a webhook</span>
-    </p>
-
-    <div class="vs">
-      <figure class="pane pane--bad">
-        <figcaption class="pane__cap"><span class="pane__dot" aria-hidden="true"></span>Every other tunnel</figcaption>
-        <pre class="pane__body" translate="no"><span class="t-cmd">ngrok http 3000</span>   <span class="t-arw">→</span>  <span class="t-dim">https://…ngrok.io</span>
-<span class="t-cmd">^C</span>                <span class="t-arw">→</span>  <span class="t-dim">laptop closed</span>
-<span class="t-cmd">3 callbacks arrive</span><span class="t-arw">→</span>  <span class="t-fail">502 Bad Gateway</span>
-<span class="t-cmd">ngrok http 3000</span>   <span class="t-arw">→</span>  <span class="t-fail">gone. new URL. re-send by hand.</span></pre>
-      </figure>
-      <figure class="pane pane--good">
-        <figcaption class="pane__cap"><span class="pane__dot" aria-hidden="true"></span>Doorbell holds it</figcaption>
-        <pre class="pane__body" translate="no"><span class="t-cmd">doorbell -name shop 3000</span><span class="t-arw">→</span>  <span class="t-url">https://…/t/shop/</span>
-<span class="t-cmd">^C</span>                <span class="t-arw">→</span>  <span class="t-dim">laptop closed</span>
-<span class="t-cmd">3 callbacks arrive</span><span class="t-arw">→</span>  <span class="t-held">202 Accepted, stored</span>
-<span class="t-cmd">doorbell -name shop 3000</span><span class="t-arw">→</span>  <span class="t-ok">all 3 delivered, in order</span></pre>
-      </figure>
-    </div>
-    <p class="sec__foot">Same URL both times. That matters more than it looks: a sender you
-       registered a URL with does not come back to ask for a new one.</p>
-
-    <h3 class="sub">How the others handle it</h3>
-    <p class="sec__lede">All good tools. None is built to <em>hold</em> a request, because none
-       has anywhere to put one. Capability only - not price.</p>
-
-    <div class="matrix-wrap">
-      <table class="matrix">
-        <caption class="sr-only">Capability comparison between Doorbell and other tunnels</caption>
-        <thead>
-          <tr>
-            <th scope="col">Can it…</th>
-            <th scope="col">ngrok</th>
-            <th scope="col">Cloudflare&nbsp;Tunnel</th>
-            <th scope="col">localtunnel</th>
-            <th scope="col">frp / bore</th>
-            <th scope="col" class="matrix__us">Doorbell</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <th scope="row">Keep a request that arrives while your agent is offline</th>
-            <td><span class="no">✕</span><span class="matrix__note">ERR_NGROK_3200</span></td>
-            <td><span class="no">✕</span><span class="matrix__note">origin error</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td class="matrix__us"><span class="yes">✓</span><span class="matrix__note">stored in Postgres</span></td>
-          </tr>
-          <tr>
-            <th scope="row">Answer the sender with a success, not an error</th>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td class="matrix__us"><span class="yes">✓</span><span class="matrix__note">202 Accepted</span></td>
-          </tr>
-          <tr>
-            <th scope="row">Deliver what it kept, in order, on reconnect</th>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td class="matrix__us"><span class="yes">✓</span></td>
-          </tr>
-          <tr>
-            <th scope="row">Replay a captured request</th>
-            <td><span class="yes">✓</span><span class="matrix__note">while connected</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td class="matrix__us"><span class="yes">✓</span></td>
-          </tr>
-          <tr>
-            <th scope="row">Show a live request inspector</th>
-            <td><span class="yes">✓</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td class="matrix__us"><span class="yes">✓</span></td>
-          </tr>
-          <tr>
-            <th scope="row">Run on infrastructure you control</th>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="no">✕</span></td>
-            <td><span class="yes">✓</span></td>
-            <td class="matrix__us"><span class="yes">✓</span></td>
-          </tr>
-          <tr>
-            <th scope="row">Bring gateway, database, queue and TLS up from one file</th>
-            <td><span class="dash">-</span></td>
-            <td><span class="dash">-</span></td>
-            <td><span class="dash">-</span></td>
-            <td><span class="no">✕</span><span class="matrix__note">you assemble it</span></td>
-            <td class="matrix__us"><span class="yes">✓</span></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <p class="sec__foot"><strong>ngrok could not hold your webhooks even if it wanted to</strong>
-       - holding them means storing your payloads, signatures and tokens on someone else's
-       servers. Doorbell can, because the database is yours. That is the whole argument: the
-       holding is not a bolt-on feature, it is what owning the infrastructure buys you.</p>
-  </section>
-
-  <section class="sec" id="guarantees">
-    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">02</span>What the gateway guarantees</h2>
-    <p class="sec__lede">Not "forwards HTTP". These are the promises the system is built to keep,
-       and every one of them is visible in the dashboard while it happens.</p>
-
-    <div class="cards">
-      <article class="card2">
-        <h3><span class="card2__n" aria-hidden="true">01</span>Nothing is dropped</h3>
-        <p>Written to Postgres <strong>before</strong> the sender is answered - never held only in memory.</p>
-      </article>
-      <article class="card2">
-        <h3><span class="card2__n" aria-hidden="true">02</span>Answered straight away</h3>
-        <p><code translate="no">202 Accepted</code>, not <code translate="no">502</code>, so the sender's retry policy never fires.</p>
-      </article>
-      <article class="card2">
-        <h3><span class="card2__n" aria-hidden="true">03</span>Delivered in order</h3>
-        <p>The queue drains oldest first, so <code translate="no">created</code> still arrives before <code translate="no">updated</code>.</p>
-      </article>
-      <article class="card2">
-        <h3><span class="card2__n" aria-hidden="true">04</span>Delivered once</h3>
-        <p>An atomic lease means two laptops reconnecting cannot both drain the same queue.</p>
-      </article>
-      <article class="card2">
-        <h3><span class="card2__n" aria-hidden="true">05</span>Replay on demand</h3>
-        <p>Re-send any stored request, body byte for byte, whenever you like - press <kbd>r</kbd>. Signing headers are redacted before storage, so they do not come back with it.</p>
-      </article>
-      <article class="card2">
-        <h3><span class="card2__n" aria-hidden="true">06</span>A URL that does not move</h3>
-        <p>Names are reserved, so it survives restarts. Register it with the sender once.</p>
-      </article>
-      <article class="card2">
-        <h3><span class="card2__n" aria-hidden="true">07</span>Secrets are never stored</h3>
-        <p>Signing and auth headers are redacted before the database, and matched by shape - not by vendor name.</p>
-      </article>
-      <article class="card2">
-        <h3><span class="card2__n" aria-hidden="true">08</span>You can see all of it</h3>
-        <p>Live request and response bodies, plus a timeline of exactly when a tunnel was offline.</p>
-      </article>
-    </div>
-  </section>
-
-  <section class="sec" id="install">
-    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">03</span>Try it against this gateway</h2>
-    <p class="sec__lede">Three lines. The tunnel is live before the third one finishes.</p>
-
-    <figure class="term">
-      <figcaption class="term__cap">Terminal
-        <button type="button" class="btn btn--sm" data-copy="cmd">Copy</button>
-      </figcaption>
-      <pre class="term__body" id="cmd" translate="no">$ go install github.com/BigAchiever/Doorbell/cmd/doorbell@latest
-$ export DOORBELL_GATEWAY=<span id="host">…</span>
-$ doorbell -name pick-a-name 3000</pre>
-    </figure>
-
-    <div class="notes">
-      <div class="note-block">
-        <h3>Name it, or nothing is held</h3>
-        <p>Only a <em>reserved</em> name survives a disconnect. <code translate="no">-name</code> reserves
-           one; without it you get a random name that is dropped when you leave, and a webhook
-           sent afterwards is a genuine <code translate="no">404</code>. Flags go before the port.</p>
-      </div>
-      <div class="note-block">
-        <h3>No Go?</h3>
-        <p>Prebuilt binaries for macOS, Linux and Windows are built by
-           <code translate="no">make&nbsp;release</code>.</p>
-      </div>
-      <div class="note-block">
-        <h3>What you get back</h3>
-        <p><code class="v-accent" translate="no">https://…/t/shop/</code> - a stable URL. Register
-           it once with whatever is calling you.</p>
-      </div>
-      <div class="note-block">
-        <h3>No token on this gateway</h3>
-        <p>The control port here is left open, so anyone may forward a port. Only the
-           inspector is gated - opening a tunnel never shows you someone else's traffic.
-           Your own deployment sets <code translate="no">DOORBELL_CLIENT_TOKEN</code> to close it.</p>
-      </div>
-      <div class="note-block">
-        <h3>Needs IPv6</h3>
-        <p>The address above is IPv6. Zerops serves a raw TCP port from the project's own
-           public IP, and a shared IPv4 cannot carry one - so the CLI needs an IPv6 route.
-           The <code translate="no">curl</code> demo at the top of this page works on either.</p>
+      <!-- The one thing a reader can check without installing anything. It goes
+           above every other section on purpose: the whole claim is falsifiable
+           in two commands, and nothing else on this page earns attention until
+           that has been shown. -->
+      <div class="db-proof" id="verify">
+        <h2>Verify it yourself, in 90 seconds</h2>
+        <p>This gateway keeps a tunnel called <code class="db-tok db-mono">shop</code> reserved with
+          nothing connected to it - the same situation as a laptop with the lid shut. Nothing to
+          install, no account, no token.</p>
+        <ol>
+          <li><div><p>Note the <strong>held right now</strong> counter above.</p></div></li>
+          <li><div>
+            <p>Send a webhook to that offline tunnel:</p>
+            <figure class="db-term" style="margin-top:12px">
+              <figcaption class="db-term__cap">Terminal
+                <button type="button" class="db-copy" data-copy="curl1"><span aria-hidden="true">⧉</span>Copy</button>
+              </figcaption>
+              <pre class="db-term__body" id="curl1" translate="no"><span class="p">$ </span>curl -i -X POST https://<span class="v"><span id="origin1">…</span></span>/t/shop/hook -d '{"n":1}'</pre>
+            </figure>
+            <p style="margin-top:12px">You get <code class="db-tok db-tok--ok db-mono">202 Accepted</code>
+              instead of <code class="db-tok db-tok--fail db-mono">502</code>. It was in Postgres before
+              that response reached you.</p>
+          </div></li>
+          <li><div><p>Reload this page. The counter has gone up by one. That is your request, in the mailbox.</p></div></li>
+          <li><div>
+            <p>Now try a name nobody reserved:</p>
+            <figure class="db-term" style="margin-top:12px">
+              <figcaption class="db-term__cap">Terminal
+                <button type="button" class="db-copy" data-copy="curl2"><span aria-hidden="true">⧉</span>Copy</button>
+              </figcaption>
+              <pre class="db-term__body" id="curl2" translate="no"><span class="p">$ </span>curl -i -X POST https://<span class="v"><span id="origin2">…</span></span>/t/zzrandom99/hook -d '{"n":1}'</pre>
+            </figure>
+            <p style="margin-top:12px"><code class="db-tok db-mono">404</code> this time. Only reserved
+              names are held, so nobody fills the mailbox by guessing URLs.</p>
+          </div></li>
+        </ol>
+        <p>That shows a request being <em>held</em>. Watching one <em>drain</em> in order needs a tunnel
+          of your own - <a href="#install">three lines below</a>.</p>
       </div>
     </div>
   </section>
 
-  <section class="sec" id="zerops">
-    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">04</span>Why this had to be built on Zerops</h2>
-    <p class="sec__lede sec__lede--claim">Doorbell is not an app that happens to run on Zerops.
-       It is one that cannot exist unless six separate things are true at the same time - and
-       almost no platform makes all six true at once.</p>
-    <p class="sec__lede">On Zerops the entire middle column is one YAML file and ninety seconds.</p>
+  <section class="db-sec" id="how">
+    <div class="db-wrap">
+      <div class="db-secgrid">
+        <p class="db-num db-mono" aria-hidden="true">01</p>
+        <div>
+          <h2 class="db-h2">What a tunnel is actually for</h2>
+          <p class="db-sub">Something on the internet needs to POST to code on your laptop, and your
+            laptop has no public address. So you open a tunnel - and then you close the lid.</p>
+          <p class="db-chips" aria-label="Examples of senders">
+            <span>Stripe</span><span>GitHub</span><span>GitLab CI</span><span>Slack</span>
+            <span>Twilio</span><span>Shopify</span><span>Auth0</span><span>anything with a webhook</span>
+          </p>
+        </div>
+      </div>
 
-    <div class="reqs">
-      <div class="reqs__head" aria-hidden="true">
-        <span>What Doorbell needs</span><span>On Zerops</span><span>What you would do instead</span>
-      </div>
-      <div class="reqs__row">
-        <div class="reqs__need">
-          <p class="reqs__n" aria-hidden="true">01</p>
-          <div>
-            <h3>A raw public TCP port</h3>
-            <p class="reqs__why">The multiplexed control channel. Not HTTP.</p>
+      <div class="db-panes">
+        <figure class="db-pane">
+          <figcaption class="db-pane__cap"><span class="db-pane__dot" aria-hidden="true"></span>Every other tunnel</figcaption>
+          <div class="db-pane__body" translate="no">
+            <span class="c">ngrok http 3000</span><span class="a" aria-hidden="true">→</span><span class="d">https://…ngrok.io</span>
+            <span class="c">^C</span><span class="a" aria-hidden="true">→</span><span class="d">laptop closed</span>
+            <span class="c">3 callbacks arrive</span><span class="a" aria-hidden="true">→</span><span class="f">502 Bad Gateway</span>
+            <span class="c">ngrok http 3000</span><span class="a" aria-hidden="true">→</span><span class="f">gone. new URL. re-send by hand.</span>
           </div>
-        </div>
-        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
-          <span class="chip-yes" aria-label="yes">✓</span><span>Ports 10–65435, declared in <code translate="no">zerops.yaml</code></span>
-        </div>
-        <div class="reqs__cell" data-label="Instead">
-          <span class="chip-no" aria-label="no">✕</span><span>A VPS and your own firewall. No PaaS exposes one; managed TLS cannot sit in front of it.</span>
-        </div>
-      </div>
-      <div class="reqs__row">
-        <div class="reqs__need">
-          <p class="reqs__n" aria-hidden="true">02</p>
-          <div>
-            <h3>A process that never sleeps</h3>
-            <p class="reqs__why">A socket held for hours. If it sleeps, every tunnel dies.</p>
+        </figure>
+        <figure class="db-pane db-pane--good">
+          <figcaption class="db-pane__cap"><span class="db-pane__dot" aria-hidden="true"></span>Doorbell holds it</figcaption>
+          <div class="db-pane__body" translate="no">
+            <span class="c">doorbell -name shop 3000</span><span class="a" aria-hidden="true">→</span><span class="u">https://…/t/shop/</span>
+            <span class="c">^C</span><span class="a" aria-hidden="true">→</span><span class="d">laptop closed</span>
+            <span class="c">3 callbacks arrive</span><span class="a" aria-hidden="true">→</span><span class="h">202 Accepted, stored</span>
+            <span class="c">doorbell -name shop 3000</span><span class="a" aria-hidden="true">→</span><span class="o">all 3 delivered, in order</span>
           </div>
-        </div>
-        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
-          <span class="chip-yes" aria-label="yes">✓</span><span>No scale-to-zero</span>
-        </div>
-        <div class="reqs__cell" data-label="Instead">
-          <span class="chip-no" aria-label="no">✕</span><span>Serverless cannot express it at all - this is not "harder on Vercel", it is impossible there.</span>
-        </div>
+        </figure>
       </div>
-      <div class="reqs__row">
-        <div class="reqs__need">
-          <p class="reqs__n" aria-hidden="true">03</p>
-          <div>
-            <h3>Postgres, privately reachable</h3>
-            <p class="reqs__why">The mailbox - what makes 202 honest.</p>
-          </div>
-        </div>
-        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
-          <span class="chip-yes" aria-label="yes">✓</span><span>One service in the same file</span>
-        </div>
-        <div class="reqs__cell" data-label="Instead">
-          <span class="chip-no" aria-label="no">✕</span><span>Provision, secure, patch, back up, monitor</span>
-        </div>
-      </div>
-      <div class="reqs__row">
-        <div class="reqs__need">
-          <p class="reqs__n" aria-hidden="true">04</p>
-          <div>
-            <h3>Valkey</h3>
-            <p class="reqs__why">Routing and events, so any container can answer for any tunnel.</p>
-          </div>
-        </div>
-        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
-          <span class="chip-yes" aria-label="yes">✓</span><span>One service in the same file</span>
-        </div>
-        <div class="reqs__cell" data-label="Instead">
-          <span class="chip-no" aria-label="no">✕</span><span>Another box to run, secure and watch</span>
-        </div>
-      </div>
-      <div class="reqs__row">
-        <div class="reqs__need">
-          <p class="reqs__n" aria-hidden="true">05</p>
-          <div>
-            <h3>A private network</h3>
-            <p class="reqs__why">The database holds captured bodies. It must never face the internet.</p>
-          </div>
-        </div>
-        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
-          <span class="chip-yes" aria-label="yes">✓</span><span>VXLAN by default, hostnames resolve, nothing to configure</span>
-        </div>
-        <div class="reqs__cell" data-label="Instead">
-          <span class="chip-no" aria-label="no">✕</span><span>VPC, subnets, security groups, and the discipline to keep them right</span>
-        </div>
-      </div>
-      <div class="reqs__row">
-        <div class="reqs__need">
-          <p class="reqs__n" aria-hidden="true">06</p>
-          <div>
-            <h3>Managed TLS and HTTP ingress</h3>
-            <p class="reqs__why">Senders will not deliver to a bad certificate.</p>
-          </div>
-        </div>
-        <div class="reqs__cell reqs__cell--z" data-label="On Zerops">
-          <span class="chip-yes" aria-label="yes">✓</span><span>Automatic on the project subdomain</span>
-        </div>
-        <div class="reqs__cell" data-label="Instead">
-          <span class="chip-no" aria-label="no">✕</span><span>Certificates, renewal, a reverse proxy in front of the raw port</span>
-        </div>
-      </div>
-    </div>
 
-    <div class="qa-pair">
-    <div class="qa qa--ask">
-      <h3>“Could you not just put this on Vercel?”</h3>
-      <p><strong>Half of it, yes.</strong> The mailbox is an HTTP endpoint that writes to
-         Postgres, and that runs almost anywhere.</p>
-      <p><strong>The tunnel does not.</strong> A serverless function stops when it answers, so
-         nothing is left holding your socket. Vercel rejects even WebSocket handshakes regardless
-         of configuration - a raw TCP listener is far further out of reach than that.</p>
-      <p>The platform choice here is not a preference. It is the feature.</p>
-    </div>
+      <p class="db-quote">Same URL both times. That matters more than it looks: a sender you
+        registered a URL with does not come back to ask for a new one.</p>
 
-    <div class="qa">
-      <h3>Honest caveat</h3>
-      <p>Any one of these is easy somewhere - a $5 VPS gives you the raw port. What no other
-         target gives you is all six at once, on one private network, from a single pasted file.</p>
-    </div>
+      <h3 class="db-h3">How the others handle it</h3>
+      <p class="db-sub">All good tools. None is built to <em>hold</em> a request, because none
+        has anywhere to put one. Capability only - not price.</p>
+
+      <div class="db-matrixwrap">
+        <table class="db-matrix">
+          <caption class="sr-only">Capability comparison between Doorbell and other tunnels</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="db-first db-mono">Can it…</th>
+              <th scope="col">ngrok</th>
+              <th scope="col">Cloudflare&nbsp;Tunnel</th>
+              <th scope="col">localtunnel</th>
+              <th scope="col">frp / bore</th>
+              <th scope="col" class="db-us">Doorbell</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row" class="db-first">Keep a request that arrives while your agent is offline</th>
+              <td><span class="db-no" role="img" aria-label="No">✕</span><span class="db-hint">ERR_NGROK_3200</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span><span class="db-hint">origin error</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td class="db-us"><span class="db-yes" role="img" aria-label="Yes">✓</span><span class="db-hint">stored in Postgres</span></td>
+            </tr>
+            <tr>
+              <th scope="row" class="db-first">Answer the sender with a success, not an error</th>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td class="db-us"><span class="db-yes" role="img" aria-label="Yes">✓</span><span class="db-hint">202 Accepted</span></td>
+            </tr>
+            <tr>
+              <th scope="row" class="db-first">Deliver what it kept, in order, on reconnect</th>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td class="db-us"><span class="db-yes" role="img" aria-label="Yes">✓</span></td>
+            </tr>
+            <tr>
+              <th scope="row" class="db-first">Replay a captured request</th>
+              <td><span class="db-yes" role="img" aria-label="Yes">✓</span><span class="db-hint">while connected</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td class="db-us"><span class="db-yes" role="img" aria-label="Yes">✓</span></td>
+            </tr>
+            <tr>
+              <th scope="row" class="db-first">Show a live request inspector</th>
+              <td><span class="db-yes" role="img" aria-label="Yes">✓</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td class="db-us"><span class="db-yes" role="img" aria-label="Yes">✓</span></td>
+            </tr>
+            <tr>
+              <th scope="row" class="db-first">Run on infrastructure you control</th>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span></td>
+              <td><span class="db-yes" role="img" aria-label="Yes">✓</span></td>
+              <td class="db-us"><span class="db-yes" role="img" aria-label="Yes">✓</span></td>
+            </tr>
+            <tr>
+              <th scope="row" class="db-first">Bring gateway, database, queue and TLS up from one file</th>
+              <td><span class="db-no" role="img" aria-label="Not applicable">-</span></td>
+              <td><span class="db-no" role="img" aria-label="Not applicable">-</span></td>
+              <td><span class="db-no" role="img" aria-label="Not applicable">-</span></td>
+              <td><span class="db-no" role="img" aria-label="No">✕</span><span class="db-hint">you assemble it</span></td>
+              <td class="db-us"><span class="db-yes" role="img" aria-label="Yes">✓</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="db-quote db-quote--accent"><strong>ngrok could not hold your webhooks even if it wanted to</strong>
+        - holding them means storing your payloads, signatures and tokens on someone else's servers.
+        Doorbell can, because the database is yours. That is the whole argument: the holding is not a
+        bolt-on feature, it is what owning the infrastructure buys you.</p>
     </div>
   </section>
 
-  <section class="sec" id="deploy">
-    <h2 class="sec__h"><span class="sec__n" aria-hidden="true">05</span>Deploy your own</h2>
-    <p class="sec__lede">That YAML file is the product: ngrok is a SaaS you rent, this is a
-       network you own.</p>
+  <section class="db-sec" id="guarantees">
+    <div class="db-wrap">
+      <div class="db-secgrid">
+        <p class="db-num db-mono" aria-hidden="true">02</p>
+        <div>
+          <h2 class="db-h2">What the gateway guarantees</h2>
+          <p class="db-sub">Not "forwards HTTP". These are the promises the system is built to keep,
+            and every one of them is visible in the dashboard while it happens - limits included.</p>
+        </div>
+      </div>
 
-    <ol class="steps">
-      <li>Copy <code translate="no">zerops-import.yml</code> from the repository.</li>
-      <li>In app.zerops.io, choose <em>Import a project using YAML template</em> and paste it.</li>
-      <li>Wait about 90 seconds.</li>
-      <li>Open the raw TCP control port: gw → Public access → port routing, public 7000 →
-          internal 7000, protocol <code translate="no">tcp</code>.</li>
-    </ol>
+      <ol class="db-list">
+        <li><span class="n" aria-hidden="true">01</span><div>
+          <h3>Nothing is dropped</h3>
+          <p>Written to Postgres <strong>before</strong> the sender is answered - never held only in
+            memory. A tunnel holds 200 requests; past that the oldest are evicted, so nothing is
+            dropped up to that cap and not beyond it.</p>
+        </div></li>
+        <li><span class="n" aria-hidden="true">02</span><div>
+          <h3>Answered straight away</h3>
+          <p><code class="db-tok db-tok--ok db-mono" translate="no">202 Accepted</code>, not
+            <code class="db-tok db-tok--fail db-mono" translate="no">502</code>, so the sender's retry
+            policy never fires. It means <em>stored</em>, not <em>your app processed it</em>.</p>
+        </div></li>
+        <li><span class="n" aria-hidden="true">03</span><div>
+          <h3>Delivered in order</h3>
+          <p>The queue drains oldest first, so <code class="db-tok db-mono" translate="no">created</code>
+            still arrives before <code class="db-tok db-mono" translate="no">updated</code>.</p>
+        </div></li>
+        <li><span class="n" aria-hidden="true">04</span><div>
+          <h3>Delivered once</h3>
+          <p>An atomic lease means two laptops reconnecting cannot both drain the same queue.</p>
+        </div></li>
+        <li><span class="n" aria-hidden="true">05</span><div>
+          <h3>Replay on demand</h3>
+          <p>Re-send any stored request, body byte for byte, whenever you like - press
+            <kbd class="db-kbd">r</kbd>. Signing headers are redacted before storage, so they do not
+            come back with it.</p>
+        </div></li>
+        <li><span class="n" aria-hidden="true">06</span><div>
+          <h3>A URL that does not move</h3>
+          <p>Names are reserved, so it survives restarts. Register it with the sender once.</p>
+        </div></li>
+        <li><span class="n" aria-hidden="true">07</span><div>
+          <h3>Secrets are never stored</h3>
+          <p>Signing and auth headers are redacted before the database, matched by shape rather than
+            vendor name. The cost is real and worth knowing: a held webhook arrives unsigned, so
+            GitHub-style signature checks on it will fail. Skip verification when
+            <code class="db-tok db-mono" translate="no">X-Doorbell-Replay</code> is present.</p>
+        </div></li>
+        <li><span class="n" aria-hidden="true">08</span><div>
+          <h3>You can see all of it</h3>
+          <p>Live request and response bodies, plus a timeline of exactly when a tunnel was offline.</p>
+        </div></li>
+      </ol>
+    </div>
   </section>
 
-  <footer class="sitefoot">
-    <p class="mark"><span class="mark__ring" aria-hidden="true"></span><strong>Doorbell</strong></p>
-    <p class="sitefoot__meta">Built for The Zerops Challenge, 8–9 August 2026 · MIT licensed</p>
-    <nav class="sitefoot__links" aria-label="Elsewhere">
-      <a href="/dashboard">Dashboard</a>
-      <a href="/api/info">API</a>
-      <a href="https://github.com/BigAchiever/Doorbell" rel="noopener">Repository</a>
-    </nav>
+  <section class="db-sec" id="install">
+    <div class="db-wrap">
+      <div class="db-secgrid">
+        <p class="db-num db-mono" aria-hidden="true">03</p>
+        <div>
+          <h2 class="db-h2">Open a tunnel of your own</h2>
+          <p class="db-sub">Three lines. The tunnel is live before the third one finishes, and this
+            gateway asks for no token.</p>
+
+          <figure class="db-term">
+            <figcaption class="db-term__cap">Terminal
+              <button type="button" class="db-copy" data-copy="cmd"><span aria-hidden="true">⧉</span>Copy</button>
+            </figcaption>
+            <pre class="db-term__body" id="cmd" translate="no"><span class="p">$ </span>go install github.com/BigAchiever/Doorbell/cmd/doorbell@latest
+<span class="p">$ </span>export DOORBELL_GATEWAY=<span class="v" id="host">…</span>
+<span class="p">$ </span>doorbell -name pick-a-name 3000</pre>
+          </figure>
+
+          <div class="db-notes">
+            <div>
+              <h3>Name it, or nothing is held</h3>
+              <p>Only a <em>reserved</em> name survives a disconnect.
+                <code class="db-tok db-mono" translate="no">-name</code> reserves one; without it you
+                get a random name that is dropped when you leave. Flags go before the port. Pick your
+                own - <code class="db-tok db-mono" translate="no">shop</code> is what the check above
+                relies on.</p>
+            </div>
+            <div>
+              <h3>Needs IPv6</h3>
+              <p>The address above is IPv6. Zerops serves a raw TCP port from the project's own public
+                IP, and a shared IPv4 cannot carry one. The
+                <code class="db-tok db-mono" translate="no">curl</code> check at the top works on
+                either.</p>
+            </div>
+            <div>
+              <h3>No Go?</h3>
+              <p>Prebuilt binaries for macOS, Linux and Windows are built by
+                <code class="db-tok db-mono" translate="no">make&nbsp;release</code>.</p>
+            </div>
+            <div>
+              <h3>What you get back</h3>
+              <p><code class="db-tok db-tok--accent db-mono" translate="no">https://…/t/shop/</code>
+                - a stable URL. Register it once with whatever is calling you.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="db-sec" id="zerops">
+    <div class="db-wrap">
+      <div class="db-secgrid">
+        <p class="db-num db-mono" aria-hidden="true">04</p>
+        <div>
+          <h2 class="db-h2">Why this had to be built on Zerops</h2>
+          <p class="db-claim">Doorbell is not an app that happens to run on Zerops. It is one that
+            cannot exist unless six separate things are true at the same time - and almost no platform
+            makes all six true at once.</p>
+          <p class="db-sub">On Zerops the entire middle column is one YAML file and ninety seconds.</p>
+        </div>
+      </div>
+
+      <div class="db-reqs">
+        <div class="db-reqhead" aria-hidden="true">
+          <span>What Doorbell needs</span><span class="on">On Zerops</span><span>What you would do instead</span>
+        </div>
+
+        <div class="db-reqrow">
+          <div class="db-reqrow__h"><span class="n" aria-hidden="true">01</span><div>
+            <h3>A raw public TCP port</h3><p>The multiplexed control channel. Not HTTP.</p></div></div>
+          <div class="db-cellwrap db-cellwrap--on"><p class="db-mlabel">On Zerops</p>
+            <p><span class="db-tick" role="img" aria-label="yes">✓</span><span>Ports 10–65435, declared in <code class="db-tok db-mono" translate="no">zerops.yaml</code></span></p></div>
+          <div class="db-cellwrap"><p class="db-mlabel">Instead</p>
+            <p><span class="db-cross" role="img" aria-label="no">✕</span><span>A VPS and your own firewall. No PaaS exposes one; managed TLS cannot sit in front of it.</span></p></div>
+        </div>
+
+        <div class="db-reqrow">
+          <div class="db-reqrow__h"><span class="n" aria-hidden="true">02</span><div>
+            <h3>A process that never sleeps</h3><p>A socket held for hours. If it sleeps, every tunnel dies.</p></div></div>
+          <div class="db-cellwrap db-cellwrap--on"><p class="db-mlabel">On Zerops</p>
+            <p><span class="db-tick" role="img" aria-label="yes">✓</span><span>No scale-to-zero</span></p></div>
+          <div class="db-cellwrap"><p class="db-mlabel">Instead</p>
+            <p><span class="db-cross" role="img" aria-label="no">✕</span><span>A function stops when it answers. Nothing is left holding the socket.</span></p></div>
+        </div>
+
+        <div class="db-reqrow">
+          <div class="db-reqrow__h"><span class="n" aria-hidden="true">03</span><div>
+            <h3>Postgres, privately reachable</h3><p>The mailbox - what makes 202 honest.</p></div></div>
+          <div class="db-cellwrap db-cellwrap--on"><p class="db-mlabel">On Zerops</p>
+            <p><span class="db-tick" role="img" aria-label="yes">✓</span><span>Managed, one line in the import file</span></p></div>
+          <div class="db-cellwrap"><p class="db-mlabel">Instead</p>
+            <p><span class="db-cross" role="img" aria-label="no">✕</span><span>A database to run, back up and keep off the public internet</span></p></div>
+        </div>
+
+        <div class="db-reqrow">
+          <div class="db-reqrow__h"><span class="n" aria-hidden="true">04</span><div>
+            <h3>Valkey</h3><p>The routing table and event bus across containers.</p></div></div>
+          <div class="db-cellwrap db-cellwrap--on"><p class="db-mlabel">On Zerops</p>
+            <p><span class="db-tick" role="img" aria-label="yes">✓</span><span>Managed, same file</span></p></div>
+          <div class="db-cellwrap"><p class="db-mlabel">Instead</p>
+            <p><span class="db-cross" role="img" aria-label="no">✕</span><span>Another service to run, and a second thing that can silently break scaling</span></p></div>
+        </div>
+
+        <div class="db-reqrow">
+          <div class="db-reqrow__h"><span class="n" aria-hidden="true">05</span><div>
+            <h3>A private network</h3><p>The database holds captured bodies. It must never face the internet.</p></div></div>
+          <div class="db-cellwrap db-cellwrap--on"><p class="db-mlabel">On Zerops</p>
+            <p><span class="db-tick" role="img" aria-label="yes">✓</span><span>VXLAN by default, hostnames resolve, nothing to configure</span></p></div>
+          <div class="db-cellwrap"><p class="db-mlabel">Instead</p>
+            <p><span class="db-cross" role="img" aria-label="no">✕</span><span>VPC, subnets, security groups, and the discipline to keep them right</span></p></div>
+        </div>
+
+        <div class="db-reqrow">
+          <div class="db-reqrow__h"><span class="n" aria-hidden="true">06</span><div>
+            <h3>Managed TLS and HTTP ingress</h3><p>Senders will not deliver to a bad certificate.</p></div></div>
+          <div class="db-cellwrap db-cellwrap--on"><p class="db-mlabel">On Zerops</p>
+            <p><span class="db-tick" role="img" aria-label="yes">✓</span><span>Automatic on the project subdomain</span></p></div>
+          <div class="db-cellwrap"><p class="db-mlabel">Instead</p>
+            <p><span class="db-cross" role="img" aria-label="no">✕</span><span>Certificates, renewal, a reverse proxy in front of the raw port</span></p></div>
+        </div>
+      </div>
+
+      <div class="db-qa">
+        <div class="db-qa__main">
+          <h3>“Could you not just put this on Vercel?”</h3>
+          <p><strong>Half of it, yes.</strong> The mailbox is an HTTP endpoint that writes to Postgres,
+            and that runs almost anywhere.</p>
+          <p><strong>The tunnel does not.</strong> A serverless function stops when it answers, so
+            nothing is left holding your socket. Vercel rejects even WebSocket handshakes regardless
+            of configuration - a raw TCP listener is far further out of reach than that.</p>
+          <p style="color:var(--db-fg)">The platform choice here is not a preference. It is the feature.</p>
+        </div>
+        <div class="db-qa__aside">
+          <h3>Honest caveat</h3>
+          <p>Any one of these is easy somewhere - a $5 VPS gives you the raw port. What no other target
+            gives you is all six at once, on one private network, from a single pasted file.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="db-sec db-sec--last" id="deploy">
+    <div class="db-wrap">
+      <div class="db-secgrid">
+        <p class="db-num db-mono" aria-hidden="true">05</p>
+        <div>
+          <h2 class="db-h2">Deploy your own</h2>
+          <p class="db-sub">That YAML file is the product: ngrok is a SaaS you rent, this is a network
+            you own.</p>
+
+          <ol class="db-steps">
+            <li><span class="b" aria-hidden="true">1</span>
+              <p>Copy <code class="db-tok db-mono" translate="no">zerops-import.yml</code> from the repository.</p></li>
+            <li><span class="b" aria-hidden="true">2</span>
+              <p>In app.zerops.io, choose <em>Import a project using YAML template</em> and paste it.</p></li>
+            <li><span class="b" aria-hidden="true">3</span>
+              <p>Wait about 90 seconds.</p></li>
+            <li><span class="b" aria-hidden="true">4</span>
+              <p>Open the raw TCP control port: gw → Public access → port routing, public 7000 →
+                internal 7000, protocol <code class="db-tok db-mono" translate="no">tcp</code>.</p></li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="db-foot">
+    <div class="db-foot__in">
+      <p class="db-foot__mark">
+        <span class="db-ring" aria-hidden="true" style="width:14px;height:14px"></span>
+        <strong>Doorbell</strong>
+      </p>
+      <p class="db-foot__meta">Built for The Zerops Challenge, 8–9 August 2026 · MIT licensed</p>
+      <nav aria-label="Elsewhere">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/api/info">API</a>
+        <a href="https://github.com/BigAchiever/Doorbell" rel="noopener">Repository</a>
+      </nav>
+    </div>
   </footer>
 </main>
 
-<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
-
 <script type="module">
-import { num, toast, copy, getJSON, initTheme, paintTape } from '/assets/app.js';
+import { num, copy, getJSON, initTheme, paintTape } from '/assets/app.js';
 
 const TAPE_MIN = 30;
 
 /* Until /api/info answers, show the address of the page itself — right for a
    local gateway, and replaced below wherever it is not. */
 document.getElementById('host').textContent = location.hostname;
+/* The curl examples are the one thing a reader is meant to run verbatim, so
+   they carry this page's own origin rather than a placeholder host. */
+for (const id of ['origin1', 'origin2']) {
+  document.getElementById(id).textContent = location.host;
+}
 
 /* The control port is not always reachable at the web origin. On Zerops it
    never is: this page is served through the shared HTTP balancer, while the raw
@@ -446,7 +791,7 @@ function showControlHost(info) {
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-copy]');
   if (!btn) return;
-  copy(document.getElementById(btn.dataset.copy).textContent, 'Commands copied');
+  copy(document.getElementById(btn.dataset.copy).textContent, 'Copied');
 });
 
 /* Live counters and the tape. A landing page that lies about the system behind
@@ -467,7 +812,7 @@ async function load() {
        exactly what decides whether a request survives the tunnel being down. */
     const mailbox = document.getElementById('s-mailbox');
     mailbox.textContent = info.persistence ? 'holding' : 'off';
-    mailbox.className = 'ledger__value ' + (info.persistence ? 'v-ok' : 'v-fail');
+    mailbox.className = 'db-cell__v db-mono ' + (info.persistence ? 'v-ok' : 'v-fail');
     dot.className = 'dot dot--live';
     document.getElementById('liveLabel').textContent = 'Live';
     paintTape(document.getElementById('tapeTrack'), spans, [], TAPE_MIN);
@@ -475,7 +820,7 @@ async function load() {
     for (const id of ['s-mode', 's-tunnels', 's-held', 's-mailbox']) {
       const el = document.getElementById(id);
       el.textContent = 'unavailable';
-      el.className = 'ledger__value v-fail';
+      el.className = 'db-cell__v db-mono v-fail';
     }
     dot.className = 'dot dot--down';
     document.getElementById('liveLabel').textContent = 'Unreachable';
