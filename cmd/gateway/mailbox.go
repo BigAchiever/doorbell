@@ -183,13 +183,41 @@ func (g *gateway) drainMailbox(id string, session *yamux.Session) {
 			return
 		}
 		delivered++
-		markCtx, cancelMark := context.WithTimeout(context.Background(), 10*time.Second)
-		err = g.db.MarkDelivered(markCtx, p.ID, status)
-		cancelMark()
-		if err != nil {
-			log.Printf("mailbox: mark delivered %d: %v", p.ID, err)
+		// Between here and the row being marked, the request has been delivered
+		// but the database does not know it. Claim only tests delivered_at and
+		// the lease age, so if this never lands the row becomes claimable again
+		// once the lease expires and the laptop receives it a second time.
+		//
+		// One attempt was not enough for that: the common failure is a momentary
+		// database blip, and a retry clears it. What survives a retry is
+		// genuinely at-least-once, which is why the delivery carries a stable
+		// X-Doorbell-Id for the receiver to dedupe on.
+		if err := g.markDelivered(p.ID, status); err != nil {
+			log.Printf("mailbox: mark delivered %d: %v — it may be delivered again after the lease expires", p.ID, err)
 		}
 	}
+}
+
+// markDelivered records a delivery, retrying a few times before giving up.
+//
+// Failing here never loses the request — it repeats it, which is the safer of
+// the two directions, but a repeat is still a webhook the app has already
+// processed. Three quick attempts cover the transient case without holding the
+// drain loop open long enough to matter.
+func (g *gateway) markDelivered(id int64, status int) error {
+	var err error
+	for attempt := range 3 {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 250 * time.Millisecond)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		err = g.db.MarkDelivered(ctx, id, status)
+		cancel()
+		if err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 // deliver pushes one stored request through a live session and records it.
@@ -224,6 +252,10 @@ func (g *gateway) deliver(ctx context.Context, session *yamux.Session, client *h
 	}
 	req.Header.Set("X-Doorbell-Replay", source)
 	req.Header.Set("X-Doorbell-Original-Time", p.ReceivedAt.UTC().Format(time.RFC3339))
+	// Stable for the life of the stored row, and the same on every attempt at
+	// it. Delivery is at-least-once once the database is allowed to fail, so
+	// this is what lets a receiver tell a repeat from a new request.
+	req.Header.Set("X-Doorbell-Id", strconv.FormatInt(p.ID, 10))
 	req.ContentLength = int64(len(p.Body))
 
 	started := time.Now()

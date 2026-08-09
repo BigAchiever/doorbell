@@ -140,7 +140,7 @@ request that never reached your machine in the first place.
 | **Nothing is dropped** | Written to Postgres *before* the sender is answered | 200 per tunnel, then oldest-first eviction |
 | **Answered immediately** | `202`, so the sender's retry policy never fires | `202` means *stored*, not *your app processed it* |
 | **Delivered in order** | The queue drains oldest first | — |
-| **Delivered once** | An atomic lease — 8 goroutines race, one wins | — |
+| **Delivered once** | An atomic lease — 8 goroutines race, one wins | Against concurrent drains. A database failure *after* a delivery repeats it; dedupe on `X-Doorbell-Id` |
 | **Replayable** | Any stored request, re-sent on demand | Minus the redacted headers below |
 | **Stable URL** | Reserved names survive restarts and redeploys | Only reserved names are held |
 | **Secrets not stored** | Signing and auth headers redacted before the database | So a held webhook fails signature checks |
