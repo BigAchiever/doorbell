@@ -74,11 +74,34 @@ mailbox by guessing URLs.
 Those steps show a request being held. To watch one get delivered in order when
 you reconnect, you need a tunnel of your own. Still no account or token:
 
+Point it at whatever you're already running. If you don't have anything handy,
+this accepts a POST and answers `200` — enough to watch the whole thing work.
+`python3 -m http.server` won't do: it only handles GET and replies `501` to the
+`curl` below.
+
+```bash
+python3 -c "
+from http.server import BaseHTTPRequestHandler, HTTPServer
+class H(BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.send_response(200); self.end_headers(); self.wfile.write(b'ok')
+    do_GET = do_POST
+HTTPServer(('127.0.0.1', 3000), H).serve_forever()"
+```
+
+Then, in another terminal:
+
 ```bash
 go install github.com/BigAchiever/doorbell/cmd/doorbell@latest
 export DOORBELL_GATEWAY=2a00:1ed0:1100::160:0:2ad0
 doorbell -name pick-something-unused 3000
 ```
+
+> If you skip that first step you'll get a `502`, and it will look like the thing
+> this project claims to fix. It isn't the same failure. Doorbell holds a request
+> when *the tunnel* is gone. Here the tunnel is up and your own port is empty, so
+> the gateway has somewhere to deliver and nothing there to accept it — which is a
+> real error, and it says so.
 
 Pick any name that isn't taken. The gateway sets no client token, so anyone may
 connect and claim an unclaimed name — but `shop` is already claimed, and a
