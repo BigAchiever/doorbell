@@ -80,10 +80,16 @@ export DOORBELL_GATEWAY=2a00:1ed0:1100::160:0:2ad0
 doorbell -name pick-something-unused 3000
 ```
 
-Pick a name nobody else is using. `shop` is the one this page's `curl` examples
-rely on, so leave that one alone — the gateway has no client token set, which
-means anyone can claim any unclaimed name, and taking `shop` would drain the
-mailbox the demo above depends on.
+Pick any name that isn't taken. The gateway sets no client token, so anyone may
+connect and claim an unclaimed name — but `shop` is already claimed, and a
+reservation belongs to whoever made it. Ask for it and the gateway refuses:
+
+```
+doorbell: the name "shop" is reserved by someone else
+```
+
+Which is the point of reserving names at all. You can't take someone's URL out
+from under them, and you can't walk off with the mailbox behind it.
 
 Send a request and it arrives. Hit `Ctrl-C`, send three more, and each one comes
 back `202`. Start the CLI again and they drain oldest first, each showing how

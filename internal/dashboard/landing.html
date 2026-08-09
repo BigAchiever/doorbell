@@ -613,9 +613,10 @@ kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-
               <h3>Name it, or nothing is held</h3>
               <p>Only a <em>reserved</em> name survives a disconnect.
                 <code class="db-tok db-mono" translate="no">-name</code> reserves one; without it you
-                get a random name that is dropped when you leave. Flags go before the port. Pick your
-                own - <code class="db-tok db-mono" translate="no">shop</code> is what the check above
-                relies on.</p>
+                get a random name that is dropped when you leave. Flags go before the port. Pick any
+                name that isn't taken - <code class="db-tok db-mono" translate="no">shop</code> is
+                already reserved and the gateway will refuse it, which is rather the point of
+                reserving names.</p>
             </div>
             <div>
               <h3>Needs IPv6</h3>
