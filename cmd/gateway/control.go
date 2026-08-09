@@ -13,8 +13,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/BigAchiever/Doorbell/internal/persist"
-	"github.com/BigAchiever/Doorbell/internal/tunnel"
+	"github.com/BigAchiever/doorbell/internal/persist"
+	"github.com/BigAchiever/doorbell/internal/tunnel"
 
 	"github.com/hashicorp/yamux"
 )

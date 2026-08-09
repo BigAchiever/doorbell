@@ -1,4 +1,4 @@
-module github.com/BigAchiever/Doorbell
+module github.com/BigAchiever/doorbell
 
 go 1.25.0
 

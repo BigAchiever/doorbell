@@ -59,7 +59,7 @@ Those steps show a request being held. To watch one get delivered in order when
 you reconnect, you need a tunnel of your own. Still no account or token:
 
 ```bash
-go install github.com/BigAchiever/Doorbell/cmd/doorbell@latest
+go install github.com/BigAchiever/doorbell/cmd/doorbell@latest
 export DOORBELL_GATEWAY=2a00:1ed0:1100::160:0:2ad0
 doorbell -name pick-something-unused 3000
 ```
@@ -326,11 +326,20 @@ means IPv6 or a dedicated IPv4. A shared IPv4 won't work.
 **2. Install the CLI.**
 
 ```bash
-go install github.com/BigAchiever/Doorbell/cmd/doorbell@latest
+go install github.com/BigAchiever/doorbell/cmd/doorbell@latest
 ```
 
-If you get `command not found`, `$(go env GOPATH)/bin` isn't on your `PATH`.
-There are prebuilt binaries for macOS, Linux and Windows from `make release`.
+`go install` puts the binary in `$(go env GOPATH)/bin`, which is often not on
+your `PATH`. If `doorbell` comes back as `command not found`, add it:
+
+```bash
+echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Use `~/.bashrc` instead if you're on bash. `which doorbell` should then print the
+path to it. There are also prebuilt binaries for macOS, Linux and Windows from
+`make release` if you'd rather not touch your shell config.
 
 **3. Connect.**
 
@@ -431,7 +440,7 @@ can take rather than something you need up front.
 
 | Symptom | Cause and fix |
 |---|---|
-| `doorbell: command not found` | `go install` wrote to `$(go env GOPATH)/bin`, not on your `PATH`. Add it |
+| `doorbell: command not found` | `go install` wrote it to `$(go env GOPATH)/bin`, which isn't on your `PATH`. Run `echo 'export PATH="$HOME/go/bin:$PATH"' >> ~/.zshrc` then `source ~/.zshrc` |
 | `could not reach the control port` | It is raw TCP, not HTTP. Either a firewall, or port routing was never enabled for 7000, or the IP does not support raw ports — a shared IPv4 does not |
 | `invalid token` | The gateway sets `DOORBELL_CLIENT_TOKEN`. Pass it as `DOORBELL_TOKEN`. The admin token will not work |
 | Requests return `404` instead of being held | Only *reserved* names are held. Use `-name <something>` |

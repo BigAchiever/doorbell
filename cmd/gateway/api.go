@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/BigAchiever/Doorbell/internal/dashboard"
+	"github.com/BigAchiever/doorbell/internal/dashboard"
 )
 
 func (g *gateway) handleListTunnels(w http.ResponseWriter, _ *http.Request) {

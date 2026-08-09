@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/BigAchiever/Doorbell/internal/inspect"
-	"github.com/BigAchiever/Doorbell/internal/registry"
+	"github.com/BigAchiever/doorbell/internal/inspect"
+	"github.com/BigAchiever/doorbell/internal/registry"
 )
 
 func gatewayWithTokens(client, admin string) *gateway {

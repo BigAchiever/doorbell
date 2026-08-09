@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/BigAchiever/Doorbell/internal/dashboard"
+	"github.com/BigAchiever/doorbell/internal/dashboard"
 )
 
 // tokenOK gates the control port: may this client open a tunnel at all?

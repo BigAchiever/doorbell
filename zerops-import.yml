@@ -57,7 +57,7 @@ services:
     minContainers: 1
     maxContainers: 3
     enableSubdomainAccess: true   # free https://*.zerops.app + managed SSL
-    buildFromGit: https://github.com/BigAchiever/Doorbell
+    buildFromGit: https://github.com/BigAchiever/doorbell
     envSecrets:
       # zeroconfig = path routing on the free Zerops subdomain, no DNS needed.
       # wildcard   = abc.your-domain.com, needs DNS + a wildcard certificate.

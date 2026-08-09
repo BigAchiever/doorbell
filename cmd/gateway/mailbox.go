@@ -37,8 +37,8 @@ import (
 
 	"github.com/hashicorp/yamux"
 
-	"github.com/BigAchiever/Doorbell/internal/inspect"
-	"github.com/BigAchiever/Doorbell/internal/persist"
+	"github.com/BigAchiever/doorbell/internal/inspect"
+	"github.com/BigAchiever/doorbell/internal/persist"
 )
 
 // bufferRequest stores a request for a tunnel that is not currently connected.

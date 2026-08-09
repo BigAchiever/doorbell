@@ -26,7 +26,7 @@ import (
 
 	"github.com/hashicorp/yamux"
 
-	"github.com/BigAchiever/Doorbell/internal/tunnel"
+	"github.com/BigAchiever/doorbell/internal/tunnel"
 )
 
 // clientVersion is a var, not a const: the linker's -X flag silently does

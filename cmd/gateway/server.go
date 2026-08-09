@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/BigAchiever/Doorbell/internal/dashboard"
-	"github.com/BigAchiever/Doorbell/internal/ratelimit"
+	"github.com/BigAchiever/doorbell/internal/dashboard"
+	"github.com/BigAchiever/doorbell/internal/ratelimit"
 )
 
 func (g *gateway) httpServer() *http.Server {
