@@ -11,8 +11,8 @@
 
 <p align="center">
   <a href="https://youtu.be/KIYEptODPeo">
-    <img src="https://img.youtube.com/vi/KIYEptODPeo/maxresdefault.jpg" width="760"
-         alt="Demo video: a webhook answered 202 while the tunnel is offline, then delivered in order on reconnect">
+    <img src="docs/hero.png" width="900"
+         alt="The Doorbell overview page: a tunnel offline with three requests held, alongside live counters. Opens the demo video.">
   </a>
 </p>
 
@@ -29,10 +29,6 @@
   <a href="#why-zerops">Why Zerops</a> ·
   <a href="#run-your-own">Run your own</a> ·
   <a href="#known-limitations">Limitations</a>
-</p>
-
-<p align="center">
-  <img src="docs/hero.png" alt="The Doorbell overview page: a timeline showing a tunnel offline with requests held, alongside live counters" width="900">
 </p>
 
 ---
