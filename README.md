@@ -463,8 +463,9 @@ can take rather than something you need up front.
 
 ## How this was built
 
-Solo project, built over the challenge weekend with heavy AI assistance. Claude
-Code (Opus 5) wrote most of the Go, the dashboard and this README.
+Solo project, built over the challenge weekend with heavy AI assistance: Claude
+Code, running the Opus and Fable models, inside the Antigravity IDE. Between
+them they wrote most of the Go, the dashboard and this README.
 
 What it didn't decide was the shape of the thing. That the control channel had to
 be a raw TCP port instead of a WebSocket. That the mailbox only holds *reserved*
