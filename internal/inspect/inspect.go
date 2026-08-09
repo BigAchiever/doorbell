@@ -255,8 +255,14 @@ func Truncate(b []byte) (string, bool) {
 // when the stream ends, so the inspector row for a long-lived stream appears
 // when it finishes rather than when it starts. That is the correct trade: the
 // developer's traffic must never wait on the inspector.
+// mu guards buf and cut. Read runs on whichever goroutine is draining the body
+// — for a request that is the transport's write side — while finish() can be
+// reached from the handler goroutine via Close at the same moment. sync.Once
+// only makes done fire once; it says nothing about the fields done is handed,
+// and bytes.Buffer is not safe for concurrent use.
 type Capture struct {
 	inner io.ReadCloser
+	mu    sync.Mutex
 	buf   bytes.Buffer
 	cut   bool
 	once  sync.Once
@@ -275,6 +281,7 @@ func NewCapture(body io.ReadCloser, done func(body string, cut bool)) *Capture {
 func (c *Capture) Read(p []byte) (int, error) {
 	n, err := c.inner.Read(p)
 	if n > 0 {
+		c.mu.Lock()
 		if room := MaxBodyCapture - c.buf.Len(); room > 0 {
 			if n <= room {
 				c.buf.Write(p[:n])
@@ -285,6 +292,7 @@ func (c *Capture) Read(p []byte) (int, error) {
 		} else {
 			c.cut = true
 		}
+		c.mu.Unlock()
 	}
 	// io.EOF is the normal end of a body, not a failure — finish on any error
 	// so a truncated upstream still produces a record.
@@ -302,7 +310,13 @@ func (c *Capture) Close() error {
 func (c *Capture) finish() {
 	c.once.Do(func() {
 		if c.done != nil {
-			c.done(c.buf.String(), c.cut)
+			// Snapshot under the lock, then call done outside it: done reaches
+			// back into the proxy's own mutex, and holding both would order two
+			// locks against each other for no reason.
+			c.mu.Lock()
+			body, cut := c.buf.String(), c.cut
+			c.mu.Unlock()
+			c.done(body, cut)
 		}
 	})
 }

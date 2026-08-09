@@ -73,8 +73,9 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 
 	// The record is filled in from two goroutines — the request body finishes
 	// on the transport's write side, the response body on the read side — so
-	// its fields are guarded and it is published exactly once, whichever
-	// finishes last.
+	// recMu guards every write to it. Guarding the writes is only half of it:
+	// nothing downstream takes recMu to read, so what actually makes this safe
+	// is that publish() hands out a copy. See the comment on publish below.
 	record := &inspect.Record{
 		TunnelID: id,
 		At:       started.UTC(),
@@ -95,7 +96,21 @@ func (g *gateway) handleTunnelRequest(w http.ResponseWriter, r *http.Request) {
 	// callback never fired, and no GET was ever recorded. Request-body capture
 	// is therefore best-effort — it fills the field if it completes in time,
 	// and a GET simply has nothing to fill it with.
-	publish := func() { published.Do(func() { g.finishRecord(record) }) }
+	// Publish a COPY, never the record itself. Request-body capture is
+	// best-effort and can still be running when the response completes, so the
+	// original keeps being written after this point. Everything downstream —
+	// the ring buffer, the SSE subscribers, the Valkey publish and the Postgres
+	// write — reads without recMu, so handing out the live pointer means those
+	// readers race the late callback. A shallow copy is enough: the two header
+	// maps are built once, before anything is published, and never rewritten.
+	publish := func() {
+		published.Do(func() {
+			recMu.Lock()
+			snapshot := *record
+			recMu.Unlock()
+			g.finishRecord(&snapshot)
+		})
+	}
 
 	if r.Body != nil {
 		r.Body = inspect.NewCapture(r.Body, func(body string, cut bool) {
