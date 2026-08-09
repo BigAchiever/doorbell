@@ -181,7 +181,11 @@ section[id]{scroll-margin-top:112px}
 .db-matrixwrap{margin:26px 0 0;overflow-x:auto;border:1px solid var(--db-line);border-radius:12px;background:var(--db-bg-1)}
 .db-matrix{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}
 .db-matrix th[scope=col]{padding:15px 12px;font-size:13px;font-weight:500;color:var(--db-fg-2);border-bottom:1px solid var(--db-line-2);white-space:nowrap}
-.db-matrix th.db-first{text-align:left;padding:15px 18px;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--db-fg-3);font-weight:400;background:var(--db-bg-1);min-width:250px}
+/* The uppercase mono treatment belongs to the column header only. .db-first is
+   also on every row header, where it exists to pin the first column on narrow
+   screens — styling both from one rule shouted the questions. */
+.db-matrix th.db-first{text-align:left;padding:15px 18px;background:var(--db-bg-1);min-width:250px}
+.db-matrix thead th.db-first{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--db-fg-3);font-weight:400}
 .db-matrix th.db-us{color:var(--db-accent);background:var(--db-accent-soft);border-bottom-color:var(--db-accent);font-weight:600}
 .db-matrix th[scope=row]{text-align:left;font-weight:400;padding:15px 18px;color:var(--db-fg);border-top:1px solid var(--db-line);background:var(--db-bg-1);text-wrap:pretty}
 .db-matrix td{padding:13px 12px;text-align:center;border-top:1px solid var(--db-line);vertical-align:middle}
