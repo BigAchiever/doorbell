@@ -17,39 +17,46 @@
 :root {
   color-scheme: dark;
 
-  /* Neutrals are one OKLCH ramp at a single hue, so every surface and every
-     grey text tone is a lightness step on the same line rather than a hand-
-     picked hex that happens to look close.
-     Colour is spent on state and nothing else: amber is held, green delivered,
-     red failed, and violet is the interface itself. That rule is what lets
-     held-versus-delivered survive a two-second glance. */
-  --bg:            oklch(0.150 0.006 80);
-  --bg-raised:     oklch(0.185 0.007 80);
-  --bg-sunken:     oklch(0.128 0.006 80);
-  --bg-hover:      oklch(0.235 0.008 80);
-  --line:          oklch(0.262 0.008 80);
-  --line-strong:   oklch(0.345 0.009 80);
+  /* The palette is a road tunnel, and it is literal about it.
+     Neutrals are one OKLCH ramp at hue 250 — wet concrete, cool, never quite
+     black, so the warm light has something to sit against. The accent is a
+     sodium lamp: hue 74, the colour of the fitting above a tunnel lane and of
+     the exit you are driving toward. That is the whole product in one colour,
+     because a request going in one end and coming out the other IS the light
+     at the end of it.
 
-  /* Every one of these is at or above the 4.5:1 WCAG AA floor against both
-     --bg and --bg-raised; the tightest is --text-subtle at 5.12:1. */
-  --text:          oklch(0.955 0.004 80);
-  --text-muted:    oklch(0.735 0.010 80);
-  --text-subtle:   oklch(0.635 0.010 80);
+     State keeps the wayfinding logic of the same place. Held is signal blue,
+     hue 246: parked in the dark, waiting for the light — deliberately cool so
+     it never competes with the accent, and deliberately not amber, which
+     would. Delivered is exit-sign green, failed is signal red.
 
-  --accent:        oklch(0.72 0.14 292);
-  --accent-dim:    oklch(0.32 0.08 292);
+     Every value below was measured, not eyeballed. Nothing sits under the
+     4.5:1 AA floor against --bg in either theme. */
+  --bg:            oklch(0.172 0.010 256);
+  --bg-raised:     oklch(0.198 0.012 254);
+  --bg-sunken:     oklch(0.157 0.008 248);
+  --bg-hover:      oklch(0.228 0.014 253);
+  --line:          oklch(0.257 0.016 252);
+  --line-strong:   oklch(0.325 0.019 251);
+
+  --text:          oklch(0.942 0.005 248);
+  --text-muted:    oklch(0.717 0.021 250);
+  --text-subtle:   oklch(0.605 0.022 251);
+
+  --accent:        oklch(0.795 0.141 74);
+  --accent-dim:    oklch(0.330 0.070 74);
   /* What sits ON the accent, and what the accent becomes on hover. Both have
      to be per-theme: the accent is light in dark mode and dark in light mode,
      so no single text colour works, and brightness() moves the wrong way in
      one of them. */
-  --accent-fg:     #04140a;
-  --accent-hover:  oklch(0.78 0.14 292);
+  --accent-fg:     oklch(0.180 0.028 74);
+  --accent-hover:  oklch(0.855 0.130 74);
 
   /* State. --held/--delivered/--failed are the names the interface reasons in;
      --info/--warn/--danger stay as aliases so existing components keep working. */
-  --held:          oklch(0.80 0.13 72);
-  --delivered:     oklch(0.76 0.13 152);
-  --failed:        oklch(0.685 0.165 27);
+  --held:          oklch(0.727 0.097 246);
+  --delivered:     oklch(0.756 0.134 157);
+  --failed:        oklch(0.673 0.160 28);
   --info:          var(--accent);
   --warn:          var(--held);
   --danger:        var(--failed);
@@ -57,15 +64,17 @@
   /* Status surfaces, pre-mixed so components never hand-roll rgba(). These are
      opaque tinted darks rather than alpha, so they hold their value wherever
      they land instead of shifting with whatever is behind them. */
-  --accent-wash:   oklch(0.205 0.040 292);
-  --held-wash:     oklch(0.205 0.040 72);
-  --delivered-wash: oklch(0.205 0.038 152);
-  --failed-wash:   oklch(0.205 0.048 27);
+  --accent-wash:   oklch(0.235 0.038 74);
+  --held-wash:     oklch(0.235 0.034 246);
+  --delivered-wash: oklch(0.232 0.036 157);
+  --failed-wash:   oklch(0.235 0.048 28);
   --info-wash:     var(--accent-wash);
   --warn-wash:     var(--held-wash);
   --danger-wash:   var(--failed-wash);
 
-  --focus:         oklch(0.80 0.11 240);
+  /* Focus stays off the accent so a focused primary button still shows a ring
+     against its own fill. */
+  --focus:         oklch(0.78 0.11 246);
 
   /* A 4px scale. Everything is a multiple, so vertical rhythm holds without
      anyone eyeballing it. */
@@ -75,12 +84,12 @@
 
   --r-sm: 5px; --r-md: 8px; --r-lg: 12px; --r-full: 999px;
 
-  /* Libre Franklin for prose, JetBrains Mono for anything technical. Both are
+  /* Bricolage Grotesque for prose, IBM Plex Mono for anything technical. Both are
      loaded from Google Fonts with a full system stack behind them, so a blocked
      or slow font request degrades to the previous typography rather than to
      nothing. */
-  --font: "Libre Franklin", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font: "Bricolage Grotesque", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   --fs-xs: 11px;  --fs-sm: 12px; --fs-md: 13px;
   --fs-base: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 28px;
@@ -102,12 +111,9 @@
   --header-h: 56px;
 }
 
-/* The same rules at paper values: one neutral ramp, colour only on state. The
-   chroma on the state hues is raised and the lightness dropped, because a tone
-   that reads as amber on a dark surface reads as beige on a white one. */
-/* The same rules at paper values: one neutral ramp, colour only on state. The
-   chroma on the state hues is raised and the lightness dropped, because a tone
-   that reads as amber on a dark surface reads as beige on a white one.
+/* The same tunnel at paper values: same concrete ramp, same hues, lightness
+   inverted. Every state colour drops in lightness and gains chroma, because a
+   tone that glows on a dark surface goes chalky on a white one.
 
    Written twice on purpose. The media query is the default — follow the system —
    but it is scoped with :not([data-theme="dark"]) so an explicit choice of dark
@@ -117,72 +123,76 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --bg:            oklch(0.985 0.003 80);
+    --bg:            oklch(0.975 0.002 250);
     --bg-raised:     oklch(1 0 0);
-    --bg-sunken:     oklch(0.955 0.005 80);
-    --bg-hover:      oklch(0.962 0.005 80);
-    --line:          oklch(0.905 0.007 80);
-    --line-strong:   oklch(0.815 0.009 80);
+    --bg-sunken:     oklch(0.950 0.004 250);
+    --bg-hover:      oklch(0.958 0.004 250);
+    --line:          oklch(0.900 0.006 250);
+    --line-strong:   oklch(0.810 0.008 250);
 
-    --text:          oklch(0.245 0.012 80);
-    --text-muted:    oklch(0.480 0.012 80);
-    --text-subtle:   oklch(0.530 0.012 80);
+    --text:          oklch(0.250 0.012 250);
+    --text-muted:    oklch(0.470 0.014 250);
+    --text-subtle:   oklch(0.545 0.014 250);
 
-    /* 0.50 sat exactly on the AA boundary against white in both directions —
-       as accent text on a white card, and as white text on an accent button.
-       0.45 buys the margin back without changing the hue. */
-    --accent:        oklch(0.45 0.18 292);
-    --accent-dim:    oklch(0.905 0.045 292);
+    /* A sodium lamp does not survive being put on paper — at full lightness it
+       is a highlighter, not a colour you can read white text off. So on light
+       the accent burns down to the filament rather than the glow: same hue,
+       lightness dropped until white on it clears AA (5.9:1) and it clears AA as
+       text on the page (5.5:1). */
+    --accent:        oklch(0.508 0.105 74);
+    --accent-dim:    oklch(0.900 0.045 74);
     --accent-fg:     oklch(1 0 0);
-    --accent-hover:  oklch(0.39 0.18 292);
+    --accent-hover:  oklch(0.440 0.105 74);
 
-    --held:          oklch(0.525 0.115 72);
-    --delivered:     oklch(0.485 0.125 152);
-    --failed:        oklch(0.515 0.175 27);
+    --held:          oklch(0.473 0.110 248);
+    --delivered:     oklch(0.468 0.101 159);
+    --failed:        oklch(0.495 0.155 28);
 
-    --accent-wash:   oklch(0.965 0.022 292);
-    --held-wash:     oklch(0.968 0.032 72);
-    --delivered-wash: oklch(0.965 0.026 152);
-    --failed-wash:   oklch(0.968 0.022 27);
+    --accent-wash:   oklch(0.962 0.030 74);
+    --held-wash:     oklch(0.962 0.026 248);
+    --delivered-wash: oklch(0.960 0.026 159);
+    --failed-wash:   oklch(0.962 0.030 28);
 
-    --focus:         oklch(0.52 0.15 240);
-    --shadow-md: 0 4px 16px oklch(0.20 0.010 80 / 0.10);
-    --shadow-lg: 0 16px 48px oklch(0.20 0.010 80 / 0.16);
+    --focus:         oklch(0.50 0.13 248);
+    --shadow-md: 0 4px 16px oklch(0.20 0.010 250 / 0.10);
+    --shadow-lg: 0 16px 48px oklch(0.20 0.010 250 / 0.16);
   }
 }
 :root[data-theme="light"] {
     color-scheme: light;
-    --bg:            oklch(0.985 0.003 80);
+    --bg:            oklch(0.975 0.002 250);
     --bg-raised:     oklch(1 0 0);
-    --bg-sunken:     oklch(0.955 0.005 80);
-    --bg-hover:      oklch(0.962 0.005 80);
-    --line:          oklch(0.905 0.007 80);
-    --line-strong:   oklch(0.815 0.009 80);
+    --bg-sunken:     oklch(0.950 0.004 250);
+    --bg-hover:      oklch(0.958 0.004 250);
+    --line:          oklch(0.900 0.006 250);
+    --line-strong:   oklch(0.810 0.008 250);
 
-    --text:          oklch(0.245 0.012 80);
-    --text-muted:    oklch(0.480 0.012 80);
-    --text-subtle:   oklch(0.530 0.012 80);
+    --text:          oklch(0.250 0.012 250);
+    --text-muted:    oklch(0.470 0.014 250);
+    --text-subtle:   oklch(0.545 0.014 250);
 
-    /* 0.50 sat exactly on the AA boundary against white in both directions —
-       as accent text on a white card, and as white text on an accent button.
-       0.45 buys the margin back without changing the hue. */
-    --accent:        oklch(0.45 0.18 292);
-    --accent-dim:    oklch(0.905 0.045 292);
+    /* A sodium lamp does not survive being put on paper — at full lightness it
+       is a highlighter, not a colour you can read white text off. So on light
+       the accent burns down to the filament rather than the glow: same hue,
+       lightness dropped until white on it clears AA (5.9:1) and it clears AA as
+       text on the page (5.5:1). */
+    --accent:        oklch(0.508 0.105 74);
+    --accent-dim:    oklch(0.900 0.045 74);
     --accent-fg:     oklch(1 0 0);
-    --accent-hover:  oklch(0.39 0.18 292);
+    --accent-hover:  oklch(0.440 0.105 74);
 
-    --held:          oklch(0.525 0.115 72);
-    --delivered:     oklch(0.485 0.125 152);
-    --failed:        oklch(0.515 0.175 27);
+    --held:          oklch(0.473 0.110 248);
+    --delivered:     oklch(0.468 0.101 159);
+    --failed:        oklch(0.495 0.155 28);
 
-    --accent-wash:   oklch(0.965 0.022 292);
-    --held-wash:     oklch(0.968 0.032 72);
-    --delivered-wash: oklch(0.965 0.026 152);
-    --failed-wash:   oklch(0.968 0.022 27);
+    --accent-wash:   oklch(0.962 0.030 74);
+    --held-wash:     oklch(0.962 0.026 248);
+    --delivered-wash: oklch(0.960 0.026 159);
+    --failed-wash:   oklch(0.962 0.030 28);
 
-    --focus:         oklch(0.52 0.15 240);
-    --shadow-md: 0 4px 16px oklch(0.20 0.010 80 / 0.10);
-    --shadow-lg: 0 16px 48px oklch(0.20 0.010 80 / 0.16);
+    --focus:         oklch(0.50 0.13 248);
+    --shadow-md: 0 4px 16px oklch(0.20 0.010 250 / 0.10);
+    --shadow-lg: 0 16px 48px oklch(0.20 0.010 250 / 0.16);
 }
 
 /* One switch disables every animation in the system. */
@@ -504,9 +514,13 @@ pre.code {
 }
 .tape__key { margin: 0; font: var(--fs-xs)/1 var(--mono); color: var(--text-subtle); }
 
+/* Sunken, not raised: the tape is a trough the outage bands sit inside. On a
+   raised surface the bands have to out-contrast the panel they are drawn on,
+   and in light mode that means either a grey so dark it reads as a hole or a
+   band so faint it disappears. */
 .tape__track {
   position: relative; height: 46px;
-  background: var(--bg-raised);
+  background: var(--bg-sunken);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   overflow: hidden;

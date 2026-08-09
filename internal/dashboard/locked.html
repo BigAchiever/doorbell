@@ -1,12 +1,12 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#0d1014" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
 <title>Operator Token Required · Doorbell</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/ds.css">
 <script>/* Applied before first paint: rendering the wrong theme for a frame and
    then correcting it is worse than having no control at all. */
@@ -42,9 +42,10 @@ try{var t=localStorage.getItem("doorbell-theme");if(t)document.documentElement.d
     <div class="gate__more">
       <section>
         <h2>Don't have it?</h2>
-        <p>It is the same <code translate="no">DOORBELL_ADMIN_TOKEN</code> your CLI uses.
-           The gateway generated it at deploy time; it is in the service's environment
-           variables in the Zerops dashboard.</p>
+        <p>It is <code translate="no">DOORBELL_ADMIN_TOKEN</code>, in the gw service's
+           environment variables in the Zerops dashboard. Not the token your CLI
+           passes - that one is <code translate="no">DOORBELL_CLIENT_TOKEN</code>, and it
+           opens tunnels without opening this.</p>
       </section>
       <section>
         <h2>Prefer the API?</h2>
