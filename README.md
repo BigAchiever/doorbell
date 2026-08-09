@@ -100,8 +100,15 @@ doorbell -name pick-something-unused 3000
 > If you skip that first step you'll get a `502`, and it will look like the thing
 > this project claims to fix. It isn't the same failure. Doorbell holds a request
 > when *the tunnel* is gone. Here the tunnel is up and your own port is empty, so
-> the gateway has somewhere to deliver and nothing there to accept it — which is a
-> real error, and it says so.
+> the gateway has somewhere to deliver and nothing there to accept it, which is a
+> real error rather than something to hold.
+>
+> The CLI does say so — it answers the stream itself with
+> `doorbell: nothing is listening on 127.0.0.1:3000` — but you won't read that on
+> this deployment. Zerops' balancer replaces the body of any `5xx` with its own
+> page, so what reaches you is *"Check if your application is running on a correct
+> port"*. Roughly the same advice, minus the port it actually tried. The CLI's own
+> log line still names it, and running the gateway locally gives you the original.
 
 Pick any name that isn't taken. The gateway sets no client token, so anyone may
 connect and claim an unclaimed name — but `shop` is already claimed, and a
