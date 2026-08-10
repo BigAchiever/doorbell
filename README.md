@@ -419,12 +419,23 @@ Use `~/.bashrc` instead if you're on bash. `which doorbell` should then print th
 path to it. There are also prebuilt binaries for macOS, Linux and Windows from
 `make release` if you'd rather not touch your shell config.
 
-**3. Connect.**
+**3. Start whatever you're exposing.**
+
+A tunnel forwards to something, so that something has to be running first. Point
+it at your own app on port 3000, or use the small server from
+[step 1 of the section above](#open-your-own-tunnel--two-more-minutes) if you
+just want to watch it work.
+
+**4. Connect.**
 
 ```bash
-export DOORBELL_GATEWAY=<the control address from your overview page>
+export DOORBELL_GATEWAY=203.0.113.10
 doorbell -name shop 3000
 ```
+
+Replace that address with the one your overview page prints. It is not the
+`*.zerops.app` name: that resolves to the shared HTTP balancer, which refuses
+port 7000. An IPv6 address goes in bare, without brackets.
 
 Flags go before the port. Go's `flag` package stops parsing at the first
 non-flag argument, so `doorbell 3000 -name shop` prints the usage banner instead
@@ -432,6 +443,10 @@ of connecting.
 
 It prints your public URL. Give that to whoever needs to call you once, and it
 keeps working across restarts.
+
+If a request comes back `502` rather than reaching your app, the tunnel is up and
+nothing is listening on the port behind it. That is a different failure from the
+one this project holds requests for, which is the tunnel itself being gone.
 
 ### Configuration
 
