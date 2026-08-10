@@ -470,13 +470,31 @@ function renderDetail() {
   }
 
   const foot = document.getElementById('detailFoot');
-  foot.innerHTML = row.pendingId
-    ? `<button type="button" class="btn btn--primary" id="deliverNow" data-replay="${row.pendingId}">
+  // Replay pushes the stored bytes down a live session, so it needs one. Offering
+  // the button while the tunnel is away produced a 409 and a raw error toast,
+  // directly under a panel that had just explained the request would be
+  // delivered on reconnect. Say the same thing in both places instead.
+  const tunnelLive = lastTunnels.some((t) => t.id === row.tunnelId);
+
+  if (!row.pendingId) {
+    foot.innerHTML = `<p class="detail__hint">This one went straight through, so there is no stored copy to re-send.</p>`;
+  } else if (!tunnelLive) {
+    foot.innerHTML =
+      `<button type="button" class="btn btn--primary" disabled>
+         ${row.kind === 'held' ? 'Deliver now' : 'Replay'}
+       </button>
+       <p class="detail__hint">Needs a live tunnel to deliver into, and
+         <code translate="no">${esc(row.tunnelId)}</code> is not connected. Run
+         <code translate="no">doorbell -name ${esc(row.tunnelId)} 3000</code> and it
+         goes out on its own - this button is only for sending it a second time.</p>`;
+  } else {
+    foot.innerHTML =
+      `<button type="button" class="btn btn--primary" id="deliverNow" data-replay="${row.pendingId}">
          ${row.kind === 'held' ? 'Deliver now' : 'Replay'} <kbd>r</kbd>
        </button>
        <p class="detail__hint">Sends the stored bytes to
-         <code translate="no">localhost</code> through the tunnel. The stored copy is kept.</p>`
-    : `<p class="detail__hint">This one went straight through, so there is no stored copy to re-send.</p>`;
+         <code translate="no">localhost</code> through the tunnel. The stored copy is kept.</p>`;
+  }
 }
 
 detailEl.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
@@ -601,6 +619,12 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       if (!row.pendingId) {
         toast('Only requests that were held can be re-sent - this one went straight through.', 'info');
+        break;
+      }
+      // Same guard as the button. Without it `r` still fired the request and
+      // came back 409 while the button beside it sat disabled.
+      if (!lastTunnels.some((t) => t.id === row.tunnelId)) {
+        toast(`${row.tunnelId} is not connected - it will be delivered when it is.`, 'info');
         break;
       }
       replay(row.pendingId, null);
