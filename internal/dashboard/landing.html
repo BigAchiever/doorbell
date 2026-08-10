@@ -219,6 +219,9 @@ kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-
 
 .db-notes{margin:20px 0 0;display:grid;grid-template-columns:1fr;gap:1px;background:var(--db-line);border:1px solid var(--db-line);border-radius:12px;overflow:hidden}
 .db-notes > div{background:var(--db-bg-1);padding:20px}
+/* An odd number of cards would leave the last grid cell empty, and an empty cell
+   shows the 1px grid background as a slab of line colour. Span it instead. */
+.db-notes > div:last-child:nth-child(odd){grid-column:1/-1}
 .db-notes h3{margin:0;font-size:14px;font-weight:600;letter-spacing:-.01em}
 .db-notes p{margin:8px 0 0;font-size:14.5px;line-height:1.58;color:var(--db-fg-2);text-wrap:pretty}
 
@@ -617,11 +620,27 @@ kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-
         <p class="db-num db-mono" aria-hidden="true">03</p>
         <div>
           <h2 class="db-h2">Open a tunnel of your own</h2>
-          <p class="db-sub">Three lines. The tunnel is live before the third one finishes, and this
-            gateway asks for no token.</p>
+          <p class="db-sub">A tunnel forwards to something, so start that something first. Then three
+            lines and you are live - this gateway asks for no token.</p>
+
+          <p class="db-sub">Point it at whatever you already run on port 3000. If you have nothing
+            handy, this will do: it answers <code class="db-tok db-tok--ok db-mono">200</code> to a POST,
+            which <code class="db-tok db-mono" translate="no">python3 -m http.server</code> does not.</p>
 
           <figure class="db-term">
-            <figcaption class="db-term__cap">Terminal
+            <figcaption class="db-term__cap">Terminal - window 1
+              <button type="button" class="db-copy" data-copy="listen"><span aria-hidden="true">⧉</span>Copy</button>
+            </figcaption>
+            <pre class="db-term__body" id="listen" translate="no"><span class="p">$ </span>python3 -c "
+from http.server import BaseHTTPRequestHandler as B, HTTPServer as S
+class H(B):
+    def do_POST(self): self.send_response(200); self.end_headers(); self.wfile.write(b'ok')
+    do_GET = do_POST
+S(('127.0.0.1', 3000), H).serve_forever()"</pre>
+          </figure>
+
+          <figure class="db-term" style="margin-top:14px">
+            <figcaption class="db-term__cap">Terminal - window 2
               <button type="button" class="db-copy" data-copy="cmd"><span aria-hidden="true">⧉</span>Copy</button>
             </figcaption>
             <pre class="db-term__body" id="cmd" translate="no"><span class="p">$ </span>go install github.com/BigAchiever/doorbell/cmd/doorbell@latest
@@ -630,6 +649,15 @@ kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-
           </figure>
 
           <div class="db-notes">
+            <div>
+              <h3>Nothing listening? You get a 502</h3>
+              <p>Skip window 1 and the tunnel still opens, but a request arrives at an empty port and
+                the gateway answers <code class="db-tok db-tok--fail db-mono">502</code>. That looks
+                like the failure this project claims to fix, and it is not the same one: Doorbell holds
+                a request when <em>the tunnel</em> is gone. Here the tunnel is up and there is nothing
+                behind it to accept the request, which is a real error rather than something to
+                hold.</p>
+            </div>
             <div>
               <h3>Name it, or nothing is held</h3>
               <p>Only a <em>reserved</em> name survives a disconnect.
@@ -653,8 +681,9 @@ kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-
             </div>
             <div>
               <h3>What you get back</h3>
-              <p><code class="db-tok db-tok--accent db-mono" translate="no">https://…/t/shop/</code>
-                - a stable URL. Register it once with whatever is calling you.</p>
+              <p><code class="db-tok db-tok--accent db-mono" translate="no">https://…/t/pick-a-name/</code>
+                - a stable URL carrying whatever name you chose. Register it once with whatever is
+                calling you.</p>
             </div>
           </div>
         </div>
@@ -825,7 +854,12 @@ function showControlHost(info) {
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('[data-copy]');
   if (!btn) return;
-  copy(document.getElementById(btn.dataset.copy).textContent, 'Copied');
+  /* Strip the "$ " prompt off each line. It is rendered so the block reads as a
+     terminal, but copying it verbatim hands the reader a command that fails on
+     paste: both zsh and bash try to run "$" and report command not found. Per
+     line, because a block can carry continuation lines that must survive. */
+  const text = document.getElementById(btn.dataset.copy).textContent.replace(/^\$ /gm, '');
+  copy(text, 'Copied');
 });
 
 /* Live counters and the tape. A landing page that lies about the system behind
