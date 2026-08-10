@@ -76,7 +76,68 @@ zerops:
 
       start: ./doorbell-gw
 
-# There is deliberately no second service here. The dashboard and the landing
-# page are go:embed'd into the gateway binary, so they ship with it and cannot
-# drift out of sync with the API they read. One service, one deploy, no static
-# host to keep alive alongside it.
+  # ── demo: a permanently-connected tunnel, so the delivery path is visible
+  # without installing anything.
+  #
+  # Two curl commands against the gateway already prove a request gets held
+  # (202) and that an unknown tunnel is refused (404). Neither can show a
+  # request arriving somewhere, because that needs a client on the far side.
+  # This is that client — and it is the ordinary one: the same ./cmd/doorbell
+  # the README tells you to `go install`, run against a local server, with no
+  # special case anywhere in the gateway.
+  #
+  # It also quietly demonstrates the pillar this whole project rests on. This
+  # container has held one outbound TCP socket open to gw since it booted. On a
+  # platform that sleeps between requests there is nothing to hold it.
+  - setup: demo
+    build:
+      base: go@1
+      buildCommands:
+        - go mod download
+        - go build -o demotarget ./cmd/demotarget
+        - go build -o doorbell ./cmd/doorbell
+      deployFiles:
+        - demotarget
+        - doorbell
+      cache:
+        - /root/go/pkg/mod
+
+    deploy:
+      readinessCheck:
+        httpGet:
+          port: 8080
+          path: /healthz
+
+    run:
+      base: go@1
+      ports:
+        # No httpSupport and no public routing: this port is reachable over the
+        # project's private network and through the tunnel, and nowhere else.
+        # Visitors arrive via the gateway, which is the entire point.
+        - port: 8080
+          protocol: tcp
+          httpSupport: false
+
+      envVariables:
+        DEMO_PORT: "8080"
+        # A sibling service on the same VXLAN, so this is a bare hostname over
+        # the private network — no public IP, no TLS, no DNS. The CLI reads
+        # DOORBELL_GATEWAY on its own, which is why the start line below passes
+        # no -gateway flag.
+        DOORBELL_GATEWAY: gw
+        DOORBELL_CONTROL_PORT: "7000"
+
+      # The echo server runs in the background; the loop keeps the tunnel up
+      # across gateway restarts and deploys, which is what makes this reliable
+      # enough to point strangers at. `kill -0` is the supervision: if the echo
+      # server ever dies the loop ends, sh exits, and Zerops restarts the
+      # container rather than leaving a tunnel connected to nothing.
+      #
+      # Flags come before the port. Go's flag package stops parsing at the first
+      # positional argument, so `doorbell 8080 -name demo` would silently ignore
+      # the name.
+      start: sh -c './demotarget & dt=$!; while kill -0 $dt 2>/dev/null; do ./doorbell -name demo 8080; sleep 3; done'
+
+# The dashboard and the landing page are not services. They are go:embed'd into
+# the gateway binary, so they ship with it and cannot drift out of sync with the
+# API they read — no static host to keep alive alongside it.
