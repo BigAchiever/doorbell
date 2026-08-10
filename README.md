@@ -65,10 +65,28 @@ curl -i -X POST https://gw-2ad0-3000.prg1.zerops.app/t/zzrandom99/hook -d '{"n":
 **`404`** this time. Only reserved names get held, so nobody can fill up the
 mailbox by guessing URLs.
 
+**5.** Last one. Send a request to a tunnel that *is* connected:
+
+```bash
+curl -s -X POST https://gw-2ad0-3000.prg1.zerops.app/t/demo/orders/new -d '{"order":"A-1"}'
+```
+
+This comes back **`200`**, and the body was written by a program on the far side
+of the tunnel. It reports what it received, and whether the gateway had to hold
+it on the way.
+
+That program is not part of the gateway. It's
+[`cmd/demotarget`](cmd/demotarget/main.go), a small HTTP server running on a
+second Zerops container, with the same `doorbell` binary from the next section
+pointed at it. The gateway treats it like any other client and has no idea it's
+a demo. You can read both the server and [the service that runs
+it](zerops.yaml).
+
 ### Open your own tunnel — two more minutes
 
-Those steps show a request being held. To watch one get delivered in order when
-you reconnect, you need a tunnel of your own. Still no account or token:
+So far you've seen a request held, and a request delivered. The one thing left is
+your own machine going offline and catching up when it returns, and for that you
+need a tunnel of your own. Still no account or token:
 
 Point it at whatever you're already running. If you don't have anything handy,
 this accepts a POST and answers `200` — enough to watch the whole thing work.
@@ -278,6 +296,7 @@ another container proxied.
 | `cmd/gateway/server.go` | HTTP server, routes, middleware |
 | `cmd/gateway/config.go` | Environment configuration |
 | `cmd/doorbell` | The CLI |
+| `cmd/demotarget` | The server behind the public `demo` tunnel, so step 5 above has something to reach |
 | `internal/tunnel` | The wire protocol both ends speak |
 | `internal/registry` | Which tunnels are live on this container |
 | `internal/persist` | Postgres: reservations, stored requests, history |
