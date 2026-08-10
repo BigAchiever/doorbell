@@ -376,9 +376,11 @@ kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-
            that has been shown. -->
       <div class="db-proof" id="verify">
         <h2>Verify it yourself, in 90 seconds</h2>
-        <p>This gateway keeps a tunnel called <code class="db-tok db-mono">shop</code> reserved with
-          nothing connected to it - the same situation as a laptop with the lid shut. Nothing to
-          install, no account, no token.</p>
+        <p>This gateway keeps two tunnels for you to aim at.
+          <code class="db-tok db-mono">shop</code> is reserved with nothing connected to it - the same
+          situation as a laptop with the lid shut. <code class="db-tok db-mono">demo</code> is the one
+          in the <strong>live tunnels</strong> counter above: a small server on a second Zerops
+          container, connected right now. Nothing to install, no account, no token.</p>
         <ol>
           <li><div><p>Note the <strong>held right now</strong> counter above.</p></div></li>
           <li><div>
@@ -405,9 +407,24 @@ kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-
             <p style="margin-top:12px"><code class="db-tok db-mono">404</code> this time. Only reserved
               names are held, so nobody fills the mailbox by guessing URLs.</p>
           </div></li>
+          <li><div>
+            <p>Last one. Send a request to the tunnel that <em>is</em> connected:</p>
+            <figure class="db-term" style="margin-top:12px">
+              <figcaption class="db-term__cap">Terminal
+                <button type="button" class="db-copy" data-copy="curl3"><span aria-hidden="true">⧉</span>Copy</button>
+              </figcaption>
+              <pre class="db-term__body" id="curl3" translate="no"><span class="p">$ </span>curl -s -X POST https://<span class="v"><span id="origin3">…</span></span>/t/demo/orders/new -d '{"order":"A-1"}'</pre>
+            </figure>
+            <p style="margin-top:12px"><code class="db-tok db-tok--ok db-mono">200</code>, and the body
+              was written on the far side of the tunnel. It reports what arrived and whether the
+              gateway had to hold it on the way. That server is not part of this gateway - it runs the
+              same <code class="db-tok db-mono">doorbell</code> binary from the install section, and
+              this gateway treats it like any other client.</p>
+          </div></li>
         </ol>
-        <p>That shows a request being <em>held</em>. Watching one <em>drain</em> in order needs a tunnel
-          of your own - <a href="#install">three lines below</a>.</p>
+        <p>That is one request <em>held</em> and one <em>delivered</em>. Watching your own machine go
+          offline and then catch up in order needs a tunnel of your own -
+          <a href="#install">three lines below</a>.</p>
       </div>
     </div>
   </section>
@@ -788,7 +805,7 @@ const TAPE_MIN = 30;
 document.getElementById('host').textContent = location.hostname;
 /* The curl examples are the one thing a reader is meant to run verbatim, so
    they carry this page's own origin rather than a placeholder host. */
-for (const id of ['origin1', 'origin2']) {
+for (const id of ['origin1', 'origin2', 'origin3']) {
   document.getElementById(id).textContent = location.host;
 }
 
