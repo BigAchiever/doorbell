@@ -108,8 +108,15 @@ Then, in another terminal:
 ```bash
 go install github.com/BigAchiever/doorbell/cmd/doorbell@latest
 export DOORBELL_GATEWAY=2a00:1ed0:1100::160:0:2ad0
-doorbell -name pick-something-unused 3000
+doorbell -name $USER-demo 3000
 ```
+
+`$USER` is in there so the name comes out different on your machine than on
+anyone else's. A literal placeholder would put every reader on the same name,
+and since this gateway asks for no token, everyone who leaves the token unset
+shares one owner identity - so the second reader to use that name would inherit
+whatever the first one left held. Any unused name works; `shop` and `demo` are
+taken and will be refused.
 
 > If you skip that first step you'll get a `502`, and it will look like the thing
 > this project claims to fix. It isn't the same failure. Doorbell holds a request

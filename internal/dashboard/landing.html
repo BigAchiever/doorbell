@@ -645,7 +645,7 @@ S(('127.0.0.1', 3000), H).serve_forever()"</pre>
             </figcaption>
             <pre class="db-term__body" id="cmd" translate="no"><span class="p">$ </span>go install github.com/BigAchiever/doorbell/cmd/doorbell@latest
 <span class="p">$ </span>export DOORBELL_GATEWAY=<span class="v" id="host">…</span>
-<span class="p">$ </span>doorbell -name pick-a-name 3000</pre>
+<span class="p">$ </span>doorbell -name $USER-demo 3000</pre>
           </figure>
 
           <div class="db-notes">
@@ -662,10 +662,13 @@ S(('127.0.0.1', 3000), H).serve_forever()"</pre>
               <h3>Name it, or nothing is held</h3>
               <p>Only a <em>reserved</em> name survives a disconnect.
                 <code class="db-tok db-mono" translate="no">-name</code> reserves one; without it you
-                get a random name that is dropped when you leave. Flags go before the port. Pick any
-                name that isn't taken - <code class="db-tok db-mono" translate="no">shop</code> is
-                already reserved and the gateway will refuse it, which is rather the point of
-                reserving names.</p>
+                get a random name that is dropped when you leave. Flags go before the port.</p>
+              <p><code class="db-tok db-mono" translate="no">$USER</code> is there so the name comes out
+                different on your machine than on anyone else's. A literal placeholder would put every
+                reader on one name, and the second reader would inherit the first one's held requests.
+                Any unused name works - <code class="db-tok db-mono" translate="no">shop</code> and
+                <code class="db-tok db-mono" translate="no">demo</code> are taken, and the gateway will
+                refuse them, which is rather the point of reserving names.</p>
             </div>
             <div>
               <h3>Needs IPv6</h3>
@@ -681,7 +684,7 @@ S(('127.0.0.1', 3000), H).serve_forever()"</pre>
             </div>
             <div>
               <h3>What you get back</h3>
-              <p><code class="db-tok db-tok--accent db-mono" translate="no">https://…/t/pick-a-name/</code>
+              <p><code class="db-tok db-tok--accent db-mono" translate="no">https://…/t/$USER-demo/</code>
                 - a stable URL carrying whatever name you chose. Register it once with whatever is
                 calling you.</p>
             </div>

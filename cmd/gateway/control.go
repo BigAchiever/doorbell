@@ -81,7 +81,16 @@ func (g *gateway) handleClient(conn net.Conn) {
 		err := g.db.ClaimName(claimCtx, hello.Subdomain, hello.Token)
 		cancel()
 		if errors.Is(err, persist.ErrNameHeld) {
-			g.refuse(conn, fmt.Sprintf("the name %q is reserved by someone else", hello.Subdomain))
+			// Saying only "reserved by someone else" is a dead end: it does not
+			// say what to do, and it hides the part that surprises people —
+			// ownership is decided by the token, not by the machine. Someone who
+			// reserved a name on this laptop last week and has since opened a
+			// fresh shell gets refused by their own reservation, with no hint
+			// that DOORBELL_TOKEN is what changed.
+			g.refuse(conn, fmt.Sprintf("the name %q is already reserved.\n\n"+
+				"A name belongs to whoever claimed it first, and that is decided by DOORBELL_TOKEN\n"+
+				"rather than by the machine you are on. Either pick a name nobody has taken, or set\n"+
+				"DOORBELL_TOKEN back to the value you reserved this one with.", hello.Subdomain))
 			return
 		} else if err != nil {
 			// A database wobble should not stop a tunnel opening; the worst
