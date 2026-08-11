@@ -543,6 +543,12 @@ pre.code {
   font: 500 var(--fs-xs)/1.4 var(--mono);
   color: var(--held);
   white-space: nowrap;
+  /* Backstop. The name is already clipped where the label is built, which keeps
+     the readable part of the sentence; this is here so no future caller can
+     widen the tape past its track by passing a long enough string. */
+  max-width: 56ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* A short outage draws as a sliver, and a sliver cannot hold its own label.
@@ -1199,6 +1205,14 @@ body.app .app-header, body.app .tape, body.app .statusbar { flex: none; }
    overflow, and completely unreadable. The full value stays in the title and in
    the detail pane, neither of which is width-constrained. */
 .cell-path { max-width: 0; }        /* lets the cell shrink so the span can clip */
+
+/* The tunnel column needs the same trick, and for a sharper reason: a tunnel
+   name is whatever the client asked for, and nothing validates its length. One
+   150-character name widened this column until Status and When were pushed off
+   the right edge — the two columns the row exists to report. The width on the
+   header is only a suggestion under table-layout: auto, and .truncate cannot
+   clip a cell that is free to grow, so the cap has to be here. */
+.col-tunnel { max-width: 96px; }
 .path {
   display: block;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

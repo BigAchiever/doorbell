@@ -305,8 +305,17 @@ export function paintTape(track, stored, ticks, minutes) {
     // it caught has already drained. Saying "offline now · 6 held" next to a
     // header reading "2 held" reads as a contradiction, and is one.
     const count = g.open ? g.stillHeld : g.held;
-    const label = `${g.tunnelId} ${g.open ? 'offline now' : 'offline'} · ` +
-                  `${humanSpan(g.to - g.from)} · ${count} held`;
+    // A tunnel name is whatever the client asked for, and nothing bounds its
+    // length. Left whole, a 150-character name stretched this label right across
+    // the tape and pushed its neighbours off the edge. Clip the name rather than
+    // the label: the duration and the count come after it, so truncating the
+    // line would drop exactly what the band exists to report. The full name
+    // stays in the title.
+    const tail = `${g.open ? 'offline now' : 'offline'} · ` +
+                 `${humanSpan(g.to - g.from)} · ${count} held`;
+    const name = g.tunnelId.length > 24 ? `${g.tunnelId.slice(0, 23)}…` : g.tunnelId;
+    const label = `${name} ${tail}`;
+    const fullLabel = `${g.tunnelId} ${tail}`;
     // Below this the band is thinner than the words it carries, so the label
     // moves outside it rather than being clipped. See .tape__gap--narrow.
     const narrow = width < 14;
@@ -315,7 +324,7 @@ export function paintTape(track, stored, ticks, minutes) {
                 // Too close to the left edge to put the label there.
                 (narrow && left < 22 ? ' tape__gap--labelAfter' : '');
     html += `<div class="${cls}"` +
-            ` style="left:${left}%;width:${width}%" title="${esc(label)}">` +
+            ` style="left:${left}%;width:${width}%" title="${esc(fullLabel)}">` +
             `<span class="tape__gapLabel">${esc(label)}</span></div>`;
   }
   for (const rec of ticks || []) {

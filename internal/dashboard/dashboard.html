@@ -341,7 +341,7 @@ doorbell 3000</pre>
       `<td class="cell-path"><span class="path" title="${esc(path)}">${esc(path)}</span>` +
         (row.source === 'replay' ? ` <span class="badge badge--muted">replay</span>` : '') +
       `</td>` +
-      `<td class="subtle col-tunnel truncate">${esc(row.tunnelId)}</td>` +
+      `<td class="subtle col-tunnel truncate" title="${esc(row.tunnelId)}">${esc(row.tunnelId)}</td>` +
       `<td class="num">${statusCell(row)}</td>` +
       `<td class="num muted">${esc(when)}</td>` +
       `</tr>`;

@@ -291,7 +291,9 @@ kbd.db-kbd{font-size:11.5px;background:var(--db-bg-2);border:1px solid var(--db-
 
 /* ── app.js-owned classes, re-tokenised for this page ── */
 .tape__gap{position:absolute;top:0;bottom:0;background:var(--db-band);border-left:1px solid var(--db-band-edge);border-right:1px solid var(--db-band-edge)}
-.tape__gapLabel{position:absolute;top:6px;left:6px;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10.5px;color:var(--db-held);white-space:nowrap;pointer-events:none}
+/* max-width is a backstop: the name is clipped where the label is built, but a
+   tunnel name has no length limit and this tape is on the public page. */
+.tape__gapLabel{position:absolute;top:6px;left:6px;font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:10.5px;color:var(--db-held);white-space:nowrap;pointer-events:none;max-width:56ch;overflow:hidden;text-overflow:ellipsis}
 .tape__gap--narrow .tape__gapLabel{left:auto;right:calc(100% + 6px)}
 .tape__gap--labelAfter .tape__gapLabel{right:auto;left:calc(100% + 6px)}
 .tape__tick{position:absolute;bottom:0;width:3px;height:26px;border-radius:2px 2px 0 0;background:var(--db-held)}
