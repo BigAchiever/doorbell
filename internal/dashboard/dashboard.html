@@ -165,16 +165,24 @@ const detailEl = document.getElementById('detail');
 const seen = new Map();
 const MAX_ROWS = 250;
 
-// Stored requests in the window: everything still held, plus everything
-// delivered recently. One fetch feeds both the timeline and the held rows.
-let pending = [];
+// Two views of the mailbox, because the tape and the feed want different
+// things. `windowed` is a slice of wall-clock time and carries delivered rows
+// too, which is how the tape knows when a tunnel was up. `waiting` is every
+// request still held, at any age, which is what the feed lists.
+//
+// They used to be one fetch, and the header then counted held requests the feed
+// could not show: anything older than the window was in the total and missing
+// from the list.
+let windowed = [];
+let waiting = [];
 let counts = {};
 let filter = { kind: 'all', tunnel: null };
 let selectedKey = null;
 let rendered = new Set();   // row keys on screen, so arrivals can be told from repaints
 
-const WINDOW_MIN = 360;   // how far back stored requests are fetched
+const WINDOW_MIN = 360;   // how far back the tape's stored requests are fetched
 const TAPE_MIN = 30;      // how much of it the tape draws
+const HELD_ROWS = 200;    // how many still-waiting requests the feed lists, any age
 
 /* ── unified row model ───────────────────────────────────────────────────── */
 
@@ -184,7 +192,7 @@ const TAPE_MIN = 30;      // how much of it the tape draws
    meant the newest thing on the page could be in either place. */
 
 function heldRows() {
-  return pending
+  return waiting
     .filter((p) => !p.deliveredAt)
     .map((p) => ({
       key: `p${p.id}`,
@@ -455,7 +463,8 @@ function renderDetail() {
       `<h3 class="detail__h">Headers</h3>${kvList(rec?.resHead)}` +
       `<h3 class="detail__h">Body</h3>${bodyBlock(rec?.resBody, rec?.resCut)}`;
   } else {
-    const p = pending.find((x) => x.id === row.pendingId);
+    const p = waiting.find((x) => x.id === row.pendingId) ||
+              windowed.find((x) => x.id === row.pendingId);
     const tries = Number(p?.attempts ?? 0);
     body.innerHTML =
       `<h3 class="detail__h">Delivery</h3>` +
@@ -541,7 +550,11 @@ function renderTunnels(list) {
 }
 
 function renderFilters(list) {
-  const heldTotal = Object.values(counts).reduce((a, b) => a + Number(b || 0), 0);
+  // Counted from the rows this chip actually reveals, not from the database
+  // total in the header. They agree until the mailbox holds more than HELD_ROWS,
+  // and a filter that promises more than it can show is worse than a smaller
+  // honest number.
+  const heldTotal = heldRows().length;
   const failed = [...seen.values()].filter((r) => Number(r.status) >= 400 || r.error).length;
   const chip = (label, active, data) =>
     `<button type="button" class="chipf${active ? ' is-active' : ''}" ${data}>${label}</button>`;
@@ -572,7 +585,7 @@ document.getElementById('filters').addEventListener('click', (e) => {
 // The drawing itself lives in app.js, because the overview page draws the same
 // object from the same data. Only the window differs.
 function renderTape() {
-  paintTape(document.getElementById('tapeTrack'), pending, [...seen.values()], TAPE_MIN);
+  paintTape(document.getElementById('tapeTrack'), windowed, [...seen.values()], TAPE_MIN);
 }
 
 /* ── header chips ────────────────────────────────────────────────────────── */
@@ -651,14 +664,16 @@ let lastTunnels = [];
 
 async function refresh() {
   try {
-    const [tunnels, c, window] = await Promise.all([
+    const [tunnels, c, inWindow, stillWaiting] = await Promise.all([
       getJSON('/api/tunnels'),
       getJSON('/api/mailbox'),
       getJSON(`/api/mailbox?since=${WINDOW_MIN}`),
+      getJSON(`/api/mailbox?pending=${HELD_ROWS}`),
     ]);
     lastTunnels = tunnels || [];
     counts = c || {};
-    pending = window || [];
+    windowed = inWindow || [];
+    waiting = stillWaiting || [];
     renderAll(lastTunnels);
   } catch (err) {
     renderState(document.getElementById('tunnels'),

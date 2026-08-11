@@ -115,6 +115,12 @@ CREATE TABLE IF NOT EXISTS pending (
 CREATE INDEX IF NOT EXISTS pending_undelivered_idx
   ON pending (tunnel_id, id) WHERE delivered_at IS NULL;
 
+-- The dashboard feed asks a different question: the newest waiting rows across
+-- ALL tunnels. The index above leads with tunnel_id, so it cannot order that
+-- query without a sort. This one can.
+CREATE INDEX IF NOT EXISTS pending_waiting_idx
+  ON pending (id DESC) WHERE delivered_at IS NULL;
+
 -- claimed_at is a delivery lease. Two drains can overlap — a flaky client
 -- reconnecting twice spawns two — and without a lease both read the same
 -- undelivered rows and deliver every webhook twice. Claiming is atomic, and
@@ -332,9 +338,44 @@ func (d *DB) Since(ctx context.Context, t time.Time, limit int) ([]PendingReques
 	                  octet_length(body), delivered_at, last_status
 	           FROM pending WHERE received_at >= $1 ORDER BY received_at ASC LIMIT $2`
 
-	rows, err := d.pool.Query(ctx, q, t, limit)
+	return d.scanSummaries(ctx, "since", q, t, limit)
+}
+
+// Waiting returns the newest requests still waiting for a tunnel, across every
+// tunnel and regardless of age.
+//
+// Since() cannot answer this. It filters on received_at, which is right for the
+// timeline — that draws a band of wall-clock time — and wrong for the feed,
+// which lists things that still need a decision. Sharing one query between them
+// meant the dashboard counted 51 held requests in its header and could only ever
+// list the handful that arrived inside the window. A webhook that has been
+// waiting three days is the most persuasive row the product can show, and it was
+// the first one hidden.
+//
+// Bounding by count rather than by time is what makes that safe: the row cap is
+// the limit, so there is no unbounded scan to protect against.
+func (d *DB) Waiting(ctx context.Context, limit int) ([]PendingRequest, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	const q = `SELECT id, tunnel_id, received_at, method, path, query, headers,
+	                  octet_length(body), delivered_at, last_status
+	           FROM pending WHERE delivered_at IS NULL ORDER BY id DESC LIMIT $1`
+
+	return d.scanSummaries(ctx, "waiting", q, limit)
+}
+
+// scanSummaries reads rows that carry a body SIZE rather than the body itself.
+//
+// Deliberately not scanPending: that one derives BodySize from the body it just
+// read, which is exactly the column these queries skip. octet_length asks
+// Postgres for the size instead of shipping the bytes. Headers are kept — they
+// are a few hundred bytes, and the inspector shows them for a held request,
+// which has no response to show instead.
+func (d *DB) scanSummaries(ctx context.Context, what, q string, args ...any) ([]PendingRequest, error) {
+	rows, err := d.pool.Query(ctx, q, args...)
 	if err != nil {
-		return nil, fmt.Errorf("persist: query since: %w", err)
+		return nil, fmt.Errorf("persist: query %s: %w", what, err)
 	}
 	defer rows.Close()
 
@@ -344,7 +385,7 @@ func (d *DB) Since(ctx context.Context, t time.Time, limit int) ([]PendingReques
 		var head []byte
 		if err := rows.Scan(&p.ID, &p.TunnelID, &p.ReceivedAt, &p.Method, &p.Path,
 			&p.Query, &head, &p.BodySize, &p.DeliveredAt, &p.LastStatus); err != nil {
-			return nil, fmt.Errorf("persist: scan since: %w", err)
+			return nil, fmt.Errorf("persist: scan %s: %w", what, err)
 		}
 		if err := json.Unmarshal(head, &p.Headers); err != nil {
 			p.Headers = map[string]string{}

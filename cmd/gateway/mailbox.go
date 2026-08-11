@@ -471,6 +471,31 @@ func (g *gateway) handleMailbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// ?pending=<rows> feeds the dashboard feed: everything still waiting, across
+	// all tunnels, oldest included. Separate from ?since because the two callers
+	// want different things — the tape draws a window of time, the feed lists
+	// what still needs a decision, and a request waiting since last week belongs
+	// in the second but not the first.
+	if v := r.URL.Query().Get("pending"); v != "" {
+		rowsWanted, err := strconv.Atoi(v)
+		if err != nil || rowsWanted <= 0 {
+			http.Error(w, `{"error":"pending must be a positive number of rows"}`, http.StatusBadRequest)
+			return
+		}
+		list, err := g.db.Waiting(r.Context(), rowsWanted)
+		if err != nil {
+			http.Error(w, `{"error":"pending query failed"}`, http.StatusInternalServerError)
+			return
+		}
+		if list == nil {
+			list = []persist.PendingRequest{}
+		}
+		if err := json.NewEncoder(w).Encode(list); err != nil {
+			log.Printf("api: encode pending: %v", err)
+		}
+		return
+	}
+
 	if id := r.URL.Query().Get("tunnel"); id != "" {
 		list, err := g.db.Mailbox(r.Context(), id, 50)
 		if err != nil {
